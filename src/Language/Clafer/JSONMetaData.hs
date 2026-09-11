@@ -21,7 +21,6 @@
  SOFTWARE.
 -}
 -- | Creates JSON outputs for different kinds of metadata.
--- | Creates JSON outputs for different kinds of metadata.
 module Language.Clafer.JSONMetaData (
   generateJSONnameUIDMap,
   generateJSONScopes,
