@@ -25,7 +25,6 @@ module Language.Clafer.Intermediate.Resolver where
 import Control.Monad
 import Control.Monad.State
 import qualified Data.Map as Map
-import qualified Data.StringMap as SMap
 
 import Language.Clafer.Common
 import Language.Clafer.ClaferArgs
@@ -49,7 +48,7 @@ resolveModule    args'         imodule =
 nameModule :: Bool -> IModule -> (IModule, GEnv)
 nameModule skipResolver imodule = (imodule', genv'')
   where
-    (decls', genv') = runState (mapM (nameElement skipResolver "root") $ _mDecls imodule) $ GEnv Map.empty 0 Map.empty [] SMap.empty
+    (decls', genv') = runState (mapM (nameElement skipResolver "root") $ _mDecls imodule) $ GEnv Map.empty 0 Map.empty [] Map.empty
     imodule' = imodule{_mDecls = decls'}
     genv'' = genv'{uidClaferMap = createUidIClaferMap imodule'}
 

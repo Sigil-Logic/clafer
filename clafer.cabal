@@ -29,7 +29,7 @@ common shared-deps
     default-language:   Haskell2010
     ghc-options:        -Wall
     build-depends:      base >= 4.16 && < 5
-                      , containers >= 0.5.7.1
+                      , containers >= 0.5.8.1
                       , filepath >= 1.4.1.1
                       , mtl >= 2.2.1
                       , split >= 0.2.3.2
@@ -63,7 +63,6 @@ library
 
                       , aeson >= 1.1.2.0
                       , cmdargs >= 0.10.20
-                      , data-stringmap >= 1.0.1.1
                       , executable-path >= 0.0.3.1
                       , file-embed >= 0.0.10
                       , lens >= 4.15.4
@@ -123,7 +122,6 @@ Test-Suite test-suite
                       , HUnit >= 1.5.0.0
                       , QuickCheck >= 2.9.2
 
-                      , data-stringmap >= 1.0.1.1
                       , lens >= 4.6.0.1
                       , lens-aeson >= 1.0.2
                       , tasty >= 0.11.3

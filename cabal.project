@@ -1,7 +1,2 @@
 packages:
     ./clafer.cabal
-
-source-repository-package
-    type: git
-    location: https://github.com/gsdlab/StringMap
-    tag: 2ce0adb947adaa5581d347ce8555ec76db44d815
