@@ -1,0 +1,38 @@
+# CI for the Sigil-Logic clafer fork (Sigil-Logic/clafer#7).
+# x86_64 Linux runners; stack-based build and full test suite.
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build-test:
+    name: Build and test (x86_64 Linux)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up GHC and stack
+        uses: haskell-actions/setup@v2
+        with:
+          enable-stack: true
+          stack-version: 'latest'
+
+      - name: Cache stack
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.stack
+            .stack-work
+          key: ${{ runner.os }}-stack-clafer-${{ hashFiles('stack.yaml', 'clafer.cabal') }}
+          restore-keys: |
+            ${{ runner.os }}-stack-clafer-
+
+      - name: Build
+        run: stack build --test --no-run-tests
+
+      - name: Test (full suite)
+        run: stack test
