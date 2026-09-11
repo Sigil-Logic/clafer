@@ -1,0 +1,8 @@
+# Keep the SHA-pinned GitHub Actions in .github/workflows current
+# (Sigil-Logic/clafer#7, Cycle 1 review).
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
