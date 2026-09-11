@@ -32,7 +32,6 @@ import Functions
 
 import qualified Data.Map as M
 import Data.Maybe (isJust)
-import Data.StringMap
 import Test.Tasty
 import Test.Tasty.HUnit
 import Test.Tasty.TH
@@ -58,7 +57,7 @@ case_TypeSystemTest = case compileOneFragment defaultClaferArgs{keep_unused=True
     Nothing -> assertFailure "No Alloy result in the result map"
     Just compilerResult ->
       let
-        um' :: StringMap IClafer
+        um' :: UIDIClaferMap
         um' = uidIClaferMap $ claferEnv compilerResult
 
         root_TClafer = getTClaferByUID um' "root"

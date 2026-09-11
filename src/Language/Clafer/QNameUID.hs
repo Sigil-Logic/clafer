@@ -35,10 +35,10 @@ module Language.Clafer.QNameUID (
 
 where
 
+import Data.List (isPrefixOf)
 import Data.Maybe
 import Data.List.Split
 import qualified Data.Map as Map
-import qualified Data.StringMap as SMap
 
 import Language.Clafer.Intermediate.Intclafer
 
@@ -57,7 +57,9 @@ type FQKey = String
 type PQName = String
 
 -- a map from reversed FQName (FQKey) to UID
-type FQNameUIDMap = SMap.StringMap UID
+-- an ordered map: reversing the names on "::" makes every qualified-name
+-- prefix query a contiguous key range, so prefix search needs no prefix tree
+type FQNameUIDMap = Map.Map FQKey UID
 
 type UIDFqNameMap = Map.Map UID FQName
 type UIDLpqNameMap = Map.Map UID PQName
@@ -87,7 +89,7 @@ deriveQNameMaps    iModule =
         QNameMaps fqNameUIDMap uidFqNameMap uidLpqNameMap
 
 deriveFQNameUIDMaps :: IModule -> (FQNameUIDMap, UIDFqNameMap)
-deriveFQNameUIDMaps    iModule = addElements ["::"] (_mDecls iModule) (SMap.empty, Map.empty)
+deriveFQNameUIDMaps    iModule = addElements ["::"] (_mDecls iModule) (Map.empty, Map.empty)
 
 addElements :: [String] -> [IElement] -> (FQNameUIDMap, UIDFqNameMap) -> (FQNameUIDMap, UIDFqNameMap)
 addElements    path        elems         maps                         = foldl (addClafer path) maps elems
@@ -100,15 +102,22 @@ addClafer    path        (fqNameUIDMap, uidFqNameMap)    (IEClafer iClaf) =
         fqKey = concat newPath
         fqName :: FQName
         fqName = getQNameFromKey fqKey
-        fqNameUIDMap' = SMap.insert fqKey (_uid iClaf) fqNameUIDMap
+        fqNameUIDMap' = Map.insert fqKey (_uid iClaf) fqNameUIDMap
         uidFqNameMap' = Map.insert (_uid iClaf) fqName uidFqNameMap
     in
         addElements ("::" : newPath) (_elements iClaf) (fqNameUIDMap', uidFqNameMap')
 addClafer    _           maps                            _                  = maps
 
 findUIDsByFQName :: FQNameUIDMap -> FQName            -> [ UID ]
-findUIDsByFQName    fqNameUIDMap    fqName@(':':':':_) = SMap.lookup (getFQKey fqName) fqNameUIDMap
-findUIDsByFQName    fqNameUIDMap    fqName             = SMap.prefixFind (getFQKey fqName) fqNameUIDMap
+findUIDsByFQName    fqNameUIDMap    fqName@(':':':':_) = maybeToList $ Map.lookup (getFQKey fqName) fqNameUIDMap
+findUIDsByFQName    fqNameUIDMap    fqName             = prefixFind (getFQKey fqName) fqNameUIDMap
+
+-- all values whose key begins with the given prefix, in ascending key order
+-- (replaces Data.StringMap.prefixFind: keys sharing a prefix form a
+--  contiguous range in an ordered map, carved out by two antitone splits)
+prefixFind :: FQKey -> FQNameUIDMap -> [UID]
+prefixFind    prefix   fqNameUIDMap =
+    Map.elems $ Map.takeWhileAntitone (prefix `isPrefixOf`) $ Map.dropWhileAntitone (< prefix) fqNameUIDMap
 
 reverseOnQualifier :: FQName -> FQName
 reverseOnQualifier fqName = concat $ reverse $ split (onSublist "::") fqName
@@ -121,9 +130,9 @@ getQNameFromKey = reverseOnQualifier
 
 deriveUidLpqNameMap :: FQNameUIDMap ->  UIDLpqNameMap
 deriveUidLpqNameMap    fqNameUIDMap =
-    SMap.foldrWithKey (generateUIDLpqMapEntry fqNameUIDMap) Map.empty fqNameUIDMap
+    Map.foldrWithKey (generateUIDLpqMapEntry fqNameUIDMap) Map.empty fqNameUIDMap
 
-generateUIDLpqMapEntry :: FQNameUIDMap ->  SMap.Key -> UID -> UIDLpqNameMap -> UIDLpqNameMap
+generateUIDLpqMapEntry :: FQNameUIDMap ->  FQKey -> UID -> UIDLpqNameMap -> UIDLpqNameMap
 generateUIDLpqMapEntry    fqNameUIDMap     fqKey       uid'   uidLpqNameMap =
     Map.insert uid' lpqName uidLpqNameMap
     where
