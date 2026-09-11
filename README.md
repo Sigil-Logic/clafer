@@ -1,5 +1,5 @@
 [![Hackage](https://img.shields.io/hackage/v/clafer.svg)](https://hackage.haskell.org/package/clafer)
-[![Build Status](https://secure.travis-ci.org/gsdlab/clafer.svg)](http://travis-ci.org/gsdlab/clafer)
+[![CI](https://github.com/Sigil-Logic/clafer/actions/workflows/ci.yml/badge.svg)](https://github.com/Sigil-Logic/clafer/actions/workflows/ci.yml)
 
 # Clafer, the language
 
@@ -358,6 +358,10 @@ After changing the grammar, execute
 make grammar
 ```
 
+
+# Continuous Integration
+
+The Sigil-Logic fork builds and tests on x86_64 Linux via GitHub Actions ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)): `stack build` and the full `stack test` suite on GHC 9.4.8 / LTS-21.25, with stack/pantry caching.  Introduced under [Sigil-Logic/clafer#7](https://github.com/Sigil-Logic/clafer/issues/7).
 
 # Need help?
 

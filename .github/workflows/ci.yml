@@ -1,0 +1,39 @@
+# CI for the Sigil-Logic clafer fork (Sigil-Logic/clafer#7).
+# x86_64 Linux runners; stack-based build and full test suite.
+# Actions are pinned to full commit SHAs (Dependabot keeps them current);
+# only global stack/pantry data is cached, keyed on the dependency plan.
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build-test:
+    name: Build and test (x86_64 Linux)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up stack
+        uses: haskell-actions/setup@cd0d9bdd65b20557f41bea4dbe43d0b5fbbfe553 # v2.11.0
+        with:
+          enable-stack: true
+          stack-version: '3.11.1'
+          stack-no-global: true
+
+      - name: Cache stack (global pantry and snapshots)
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.stack
+          key: ${{ runner.os }}-${{ runner.arch }}-stack-clafer-${{ hashFiles('stack.yaml', 'clafer.cabal') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ runner.arch }}-stack-clafer-
+
+      - name: Build
+        run: stack build --test --no-run-tests
+
+      - name: Test (full suite)
+        run: stack test
