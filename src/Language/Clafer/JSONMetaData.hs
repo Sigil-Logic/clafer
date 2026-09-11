@@ -32,10 +32,10 @@ module Language.Clafer.JSONMetaData (
 where
 
 import Control.Lens hiding (element)
+import qualified Data.Aeson.Encoding as AE
 import Data.Aeson.Lens
 import qualified Data.List as List
 import Data.Maybe
-import Data.Json.Builder
 import Data.String.Conversions
 import qualified Data.Text as T
 import System.FilePath
@@ -47,34 +47,32 @@ import Language.Clafer.QNameUID
 -- | Both the FQNames and UIDs are brittle. LPQNames are the least brittle.
 generateJSONnameUIDMap :: QNameMaps -> String
 generateJSONnameUIDMap    qNameMaps     =
-    prettyPrintJSON $ convertString $ toJsonBS $ foldl generateQNameUIDArrayEntry mempty sortedTriples
+    prettyPrintJSON $ convertString $ AE.encodingToLazyByteString $ AE.list qNameUIDEntry sortedTriples
     where
       sortedTriples :: [(FQName, PQName, UID)]
       sortedTriples = List.sortBy (\(fqName1, _, _) (fqName2, _, _) -> compare fqName1 fqName2) $ getQNameUIDTriples qNameMaps
 
-generateQNameUIDArrayEntry :: Array -> (FQName, PQName, UID) -> Array
-generateQNameUIDArrayEntry    array    (fqName, lpqName, uid) =
-    mappend array $ element $ mconcat [
-        row ("fqName" :: String) fqName,
-        row ("lpqName" :: String) lpqName,
-        row ("uid" :: String) uid ]
+qNameUIDEntry :: (FQName, PQName, UID) -> AE.Encoding
+qNameUIDEntry    (fqName, lpqName, uid) =
+    AE.pairs $ mconcat [
+        AE.pair "fqName" $ AE.string fqName,
+        AE.pair "lpqName" $ AE.string lpqName,
+        AE.pair "uid" $ AE.string uid ]
 
 -- | Generate a JSON list of tuples containing a least-partially-qualified name and a scope
 generateJSONScopes :: QNameMaps -> [(UID, Integer)] -> String
 generateJSONScopes    qNameMaps    scopes       =
-    prettyPrintJSON $ convertString $ toJsonBS $ foldl generateLpqNameScopeArrayEntry mempty sortedLpqNameScopeList
+    prettyPrintJSON $ convertString $ AE.encodingToLazyByteString $ AE.list lpqNameScopeEntry sortedLpqNameScopeList
     where
       lpqNameScopeList = map (\(uid, scope) -> (fromMaybe uid $ getLPQName qNameMaps uid, scope)) scopes
       sortedLpqNameScopeList :: [(PQName, Integer)]
       sortedLpqNameScopeList = List.sortBy (\(lpqName1, _) (lpqName2, _) -> compare lpqName1 lpqName2) lpqNameScopeList
 
-
-generateLpqNameScopeArrayEntry :: Array -> (PQName, Integer)   -> Array
-generateLpqNameScopeArrayEntry    array    (lpqName, scope) =
-    mappend array $ element $ mconcat [
-        row ("lpqName" :: String) lpqName,
-        row ("scope" :: String) scope ]
-
+lpqNameScopeEntry :: (PQName, Integer) -> AE.Encoding
+lpqNameScopeEntry    (lpqName, scope) =
+    AE.pairs $ mconcat [
+        AE.pair "lpqName" $ AE.string lpqName,
+        AE.pair "scope" $ AE.integer scope ]
 -- insert a new line after  [, {, and ,
 prettyPrintJSON :: String -> String
 prettyPrintJSON ('[':line) = '[':'\n':prettyPrintJSON line
