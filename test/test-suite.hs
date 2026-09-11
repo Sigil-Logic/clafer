@@ -87,11 +87,19 @@ case_FQMapLookup = do
     [ "c2_b" ] == getUIDs qNameMaps "::c::d::b"  @? "UID for `::c::d::b` different from `c2_b`"
     [ "c1_d" ] == getUIDs qNameMaps "::d"  @? "UID for `::d` different from `c1_d`"
     [ "c3_b" ] == getUIDs qNameMaps "::d::b"  @? "UID for `::d::b` different from `c3_d`"
-    null ([ "c0_b", "c1_b", "c2_b", "c3_b" ] \\ (getUIDs qNameMaps "b" )) @? "UIDs for `b` different from `c0_b`, `c1_b`, `c2_b`, `c3_b` "
-    null ([ "c2_b", "c3_b" ] \\ (getUIDs qNameMaps "d::b" )) @? "UIDs for `d::b` different from `c2_b`, `c3_b` "
-    null ([ "c0_d", "c1_d" ] \\ (getUIDs qNameMaps "d" )) @? "UIDs for `d` different from `c0_d`, `c1_d` "
+    -- partially-qualified prefix queries return ALL matches, in ascending
+    -- order of the reversed-on-`::` keys (pins the prefixFind order contract)
+    [ "c1_b", "c0_b", "c3_b", "c2_b" ] == getUIDs qNameMaps "b"  @? "UIDs for `b` different from `c1_b`, `c0_b`, `c3_b`, `c2_b` in that order"
+    [ "c3_b", "c2_b" ] == getUIDs qNameMaps "d::b"  @? "UIDs for `d::b` different from `c3_b`, `c2_b` in that order"
+    [ "c1_d", "c0_d" ] == getUIDs qNameMaps "d"  @? "UIDs for `d` different from `c1_d`, `c0_d` in that order"
+    -- the empty partially-qualified name prefix-matches every clafer
+    [ "c0_a", "c1_b", "c0_b", "c3_b", "c2_b", "c0_c", "c1_d", "c0_d" ] == getUIDs qNameMaps ""  @? "UIDs for the empty name different from all eight clafers in ascending reversed-key order"
+    -- boundary misses: names adjacent to populated key ranges must not match
     null (getUIDs qNameMaps "x") @? "UID for `x` different from []"
     null (getUIDs qNameMaps "::x") @? "UID for `::x` different from []"
+    null (getUIDs qNameMaps "bb") @? "UID for `bb` different from []"
+    null (getUIDs qNameMaps "x::b") @? "UID for `x::b` different from []"
+    null (getUIDs qNameMaps "e") @? "UID for `e` different from []"
 
 case_AllClafersGenerics :: Assertion
 case_AllClafersGenerics = do
