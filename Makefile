@@ -14,9 +14,10 @@ endif
 all: build
 
 build: $(ALLOY_JAR)
+	$(MAKE) verify-alloy
 	stack build
 
-install:
+install: build
 	mkdir -p $(to)
 	cp -f README.md $(to)/clafer-README.md
 	cp -f LICENSE $(to)/
@@ -35,7 +36,7 @@ prof: $(ALLOY_JAR)
 	stack build --executable-profiling --library-profiling --ghc-options="-auto-all -caf-all -rtsopts -osuf p_o"
 
 .PHONY: test
-test:
+test: build
 	cp `stack path --local-install-root`/bin/clafer$(EXE) .
 	stack test 2>/dev/null || :    # supress error message and exit code if fail
 	$(MAKE) -C $(TEST_DIR) test
@@ -73,11 +74,24 @@ codex:
 	codex update
 	mv codex.tags tags
 
+# Download to a temporary file, verify, then atomically rename, so an
+# interrupted or corrupted download never becomes an "up to date" target.
 $(ALLOY_JAR):
 	@echo "Fetching Alloy $(ALLOY_VERSION) from Maven Central..."
-	curl -fsSL -o "$(ALLOY_JAR)" "$(ALLOY_URL)"
+	curl -fsSL -o "$(ALLOY_JAR).tmp" "$(ALLOY_URL)"
+	@if command -v shasum > /dev/null 2>&1; then \
+		echo "$(ALLOY_SHA256)  $(ALLOY_JAR).tmp" | shasum -a 256 -c - ; \
+	else \
+		echo "$(ALLOY_SHA256)  $(ALLOY_JAR).tmp" | sha256sum -c - ; \
+	fi || { echo "[ERROR] $(ALLOY_JAR) checksum mismatch"; rm -f "$(ALLOY_JAR).tmp"; false; }
+	mv "$(ALLOY_JAR).tmp" "$(ALLOY_JAR)"
+
+# Re-verify the jar on every build entry, so a pre-existing corrupt file is
+# caught even though make considers the target up to date.
+.PHONY: verify-alloy
+verify-alloy:
 	@if command -v shasum > /dev/null 2>&1; then \
 		echo "$(ALLOY_SHA256)  $(ALLOY_JAR)" | shasum -a 256 -c - ; \
 	else \
 		echo "$(ALLOY_SHA256)  $(ALLOY_JAR)" | sha256sum -c - ; \
-	fi || { echo "[ERROR] $(ALLOY_JAR) checksum mismatch"; rm -f "$(ALLOY_JAR)"; false; }
+	fi || { echo "[ERROR] $(ALLOY_JAR) failed verification; delete it and re-run make"; false; }

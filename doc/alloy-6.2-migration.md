@@ -1,7 +1,7 @@
 # Alloy 6.2.0 Migration Plan (clafer and claferIG)
 
 **Status**: Living document
-**Version**: 0.3.0
+**Version**: 0.4.0
 **Date**: 2026-09-12
 **Project**: HOARDE (Sigil-Logic Clafer fork, epic [HOARDE#608](https://github.com/Sigil-Logic/HOARDE/issues/608))
 **Issue**: [#5](https://github.com/Sigil-Logic/clafer/issues/5)
@@ -62,7 +62,7 @@ Alloy 5 repackaged the API; 6.x is source-incompatible with the 4.2 shim.  The c
 | `edu.mit.csail.sdg.alloy4compiler.translator.*` | `edu.mit.csail.sdg.translator.*` | `A4Options`, `A4Solution`, `TranslateAlloyToKodkod` |
 | `edu.mit.csail.sdg.alloy4.*` | unchanged | `A4Reporter`, `Err`, `ErrorSyntax`, `ErrorWarning`, `Pos`, `SafeList` |
 | custom `AlloyCompiler.parse(rep, model)` (internal-parser override for in-memory models) | `CompUtil.parseEverything_fromString(rep, model)` | **The override class is deleted** — the modern API parses from a string directly |
-| `new Command(pos, label, check, overall, bitwidth, maxseq, expects, scope, addl, formula, parent)` (11-arg) | 15-arg ctor `Command(Pos, Expr nameExpr, String, boolean, int overall, int bitwidth, int maxseq, int minprefix, int maxprefix, int expects, Iterable<CommandScope>, Iterable<Sig>, ExprVar commandKeyword, Expr formula, Command parent)`; scope changes via `command.change(Sig, boolean, int)` / `change(ConstList<CommandScope>)` | `setScopeSize`/`setCommandScopeSize` hand-rolling collapses into `change(...)`; overall/bitwidth rewrites use the full ctor preserving `minprefix`/`maxprefix`/`maxstring`/`nameExpr`/`commandKeyword` |
+| `new Command(pos, label, check, overall, bitwidth, maxseq, expects, scope, addl, formula, parent)` (11-arg) | 15-arg ctor `Command(Pos, Expr nameExpr, String, boolean, int overall, int bitwidth, int maxseq, int minprefix, int maxprefix, int expects, Iterable<CommandScope>, Iterable<Sig>, ExprVar commandKeyword, Expr formula, Command parent)`; scope changes via `command.change(Sig, boolean, int)` / `change(ConstList<CommandScope>)` | `setScopeSize`/`setCommandScopeSize` hand-rolling collapses into `change(...)`; overall/bitwidth rewrites use the full ctor preserving `minprefix`/`maxprefix`/`nameExpr`/`commandKeyword` (the 15-arg ctor exposes no `maxstring` parameter and unconditionally sets that field to `-1`, matching what 6.2.0-parsed commands already carry) |
 | `new CommandScope(pos, sig, isExact, start, end, incr)` (6-arg) | `CommandScope(Pos, Pos sigPos, Sig, boolean, int, int, int)` (7-arg) | 3-arg convenience ctor unchanged |
 | `options.solver = A4Options.SatSolver.MiniSatProverJNI` | `options.solver = SATFactory.get("minisat.prover")` (`kodkod.engine.satlab.SATFactory`; `SATFactory.find(id)` for availability probe, `SATFactory.DEFAULT` = SAT4J fallback) | `A4Options.solver` changed type to `SATFactory` |
 | `System.loadLibrary("minisatprover"/"minisatproverx1")` at startup | **deleted** | 6.2 self-extracts natives from the dist jar; availability handled via `SATFactory.find` with explicit fallback + stderr notice |
