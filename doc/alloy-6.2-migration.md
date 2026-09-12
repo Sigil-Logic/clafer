@@ -1,7 +1,7 @@
 # Alloy 6.2.0 Migration Plan (clafer and claferIG)
 
 **Status**: Living document
-**Version**: 0.2.0
+**Version**: 0.3.0
 **Date**: 2026-09-12
 **Project**: HOARDE (Sigil-Logic Clafer fork, epic [HOARDE#608](https://github.com/Sigil-Logic/HOARDE/issues/608))
 **Issue**: [#5](https://github.com/Sigil-Logic/clafer/issues/5)
@@ -89,6 +89,7 @@ Residual risk: the shim still reaches into non-stable internals (reflective writ
 
 1. **Shim port** (`src/org/clafer/ig/AlloyIG.java`, `Util.java`): apply the API table above; delete the startup `loadLibrary` block; solver selection = `SATFactory.find("minisat.prover")` with documented SAT4J fallback (stderr notice, since UNSAT-core features degrade without the prover).
 2. **Delete** `src/edu/mit/csail/sdg/alloy4compiler/parser/AlloyCompiler.java` (superseded by `CompUtil.parseEverything_fromString`).
+2a. **Add** `src/org/alloytools/solvers/natv/minisatprover/MiniSatProver.java` — the classpath shadow restoring UNSAT cores (Port Findings 4); packaged into `alloyIG.jar` ahead of the dist jar.
 3. **Manifest** (`src/manifest`): `Class-Path: org.alloytools.alloy.dist-6.2.0.jar`.
 4. **Build** (`Makefile`): Maven Central fetch (pinned + checksum) replacing the `alloytools.org` download; **remove the `lib` target and all `lib/` staging** (natives now live inside the dist jar); `javac -release 17` so the committed `alloyIG.jar` stays runnable on the CI Temurin 17 toolchain regardless of the developer's local JDK; update `build`/`test`/`install` staging to the new jar name.
 5. **Launcher** (`src/Language/Clafer/IG/AlloyIGInterface.hs`): drop `-Djava.library.path=<exec>lib` from the JVM invocation.
@@ -125,6 +126,9 @@ Three empirical findings from the shim port, folded into the design above:
 1. **`A4Solution.writeXML` no longer tolerates a null macros iterable** (NPE in `A4SolutionWriter.writeInstance`, `extraSkolems`); the shim passes an empty list.  The 4.2 call passed `null`.
 2. **Kodkod logs INFO progress to stderr** through the slf4j-simple binding bundled in the dist jar; the shim sets `org.slf4j.simpleLogger.defaultLogLevel=warn` (and the older property spelling) in `main` before any Alloy class loads, keeping claferIG's stderr clean.
 3. **Solve time on a heavyweight corpus model is not a regression**: `ACCDemo_attributedFeatureModels.als` (integer `sum` at scope 10) solves in ~70 s under 6.2 on the audit host — and ~73 s under Alloy 4.2 with SAT4J on the same host.  6.2 is marginally faster; the cost is inherent to the model, and prover-vs-SAT4J makes no material difference (isolated by A/B runs of the ported shim).
+4. **Alloy 6.2.0 as released ships with UNSAT cores silently broken** ([AlloyTools#311](https://github.com/AlloyTools/org.alloytools.alloy/issues/311)): `MiniSatProver.proof()` frees the native peer before the proof trace is consumed, so cores come back empty (verified with a direct probe: prover present, UNSAT verdict, `highLevelCore` = 0, `minimized` callback never fires — on a non-trivial pigeonhole model).  The upstream fix ([PR #314](https://github.com/AlloyTools/org.alloytools.alloy/pull/314), two lines) merged 2025-03-06, but **no release contains it** (upstream advises building from source).  Since claferIG's core/counterexample features depend on it, `alloyIG.jar` carries a **classpath shadow** of that one class — the v6.2.0 Kodkod source with exactly the upstream fix applied (MIT header retained, provenance banner at the top, removal note for the next Alloy upgrade).  With the shadow, a pigeonhole probe yields a 2-constraint core, and claferIG end-to-end displays a minimized core mapped to Clafer source and produces the near-miss counterexample.
+5. **`Pos.equals` compares filenames, and 6.2's `parseEverything_fromString` parses via a temporary file**, so AST positions carry that file's name where the 4.2-era in-memory parse used `""`.  The shim's constraint-removal positions now carry the parsed model's filename; without this, `removeConstraint` (the counterexample path) cannot match any AST node.
+6. **Prover-peer lifecycle chatter**: with proof logging, prover peers are released by the finalizer (the proof outlives the solve), which `NativeSolver` logs at WARN per instance; the shim silences that one logger to keep claferIG's console clean.
 
 ## Risks
 
