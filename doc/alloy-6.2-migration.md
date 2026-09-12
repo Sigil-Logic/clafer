@@ -1,8 +1,8 @@
 # Alloy 6.2.0 Migration Plan (clafer and claferIG)
 
 **Status**: Living document
-**Version**: 0.1.0
-**Date**: 2026-09-11
+**Version**: 0.2.0
+**Date**: 2026-09-12
 **Project**: HOARDE (Sigil-Logic Clafer fork, epic [HOARDE#608](https://github.com/Sigil-Logic/HOARDE/issues/608))
 **Issue**: [#5](https://github.com/Sigil-Logic/clafer/issues/5)
 
@@ -68,7 +68,7 @@ Alloy 5 repackaged the API; 6.x is source-incompatible with the 4.2 shim.  The c
 | `System.loadLibrary("minisatprover"/"minisatproverx1")` at startup | **deleted** | 6.2 self-extracts natives from the dist jar; availability handled via `SATFactory.find` with explicit fallback + stderr notice |
 | `TranslateAlloyToKodkod.execute_command(rep, sigs, cmd, opts)` | unchanged signature | |
 | `A4Reporter.minimized(Object, int, int)`, `warning(ErrorWarning)` | unchanged | UNSAT-core detection idiom preserved |
-| `ans.writeXML(PrintWriter, null, null)`, `ans.next()`, `ans.satisfiable()`, `ans.highLevelCore()` | unchanged | |
+| `ans.writeXML(PrintWriter, macros, sources)`, `ans.next()`, `ans.satisfiable()`, `ans.highLevelCore()` | signatures unchanged; a **null macros iterable now NPEs** (see Port Findings) — pass an empty list | |
 | `Sig.isOne/isLone/isSome` (public final `Pos`), `sig.getFacts()` | unchanged (plus new `isVariable`) | The reflective save/restore-state machinery in `Util.java` ports as-is |
 | `ExprList.make(pos, closingBracket, op, List)`, `ExprLet.make(pos, var, expr, sub)`, `ExprUnary.op.make(pos, sub)` | unchanged | `removeSubnode` constraint-removal ports as-is |
 | `Pos(String, int, int, int, int)` | unchanged | |
@@ -96,12 +96,15 @@ Residual risk: the shim still reaches into non-stable internals (reflective writ
 7. **CI** (`.github/workflows/ci.yml`): drop the "Extract the MiniSat prover native" step; keep the x86_64 build/test/baseline-capture job; the baseline-capture step now captures 6.2 behavior for the comparison below.  Proposed addition: a `macos-latest` (arm64) build/test job as durable CI evidence of the Apple Silicon unblock.
 8. **Docs** (`README.md`): Alloy 6.2.0 prerequisites, Maven Central acquisition, removal of the native-library installation steps, and an Apple Silicon support note.
 
-## Scope Decisions (for review at Checkpoint 1)
+## Scope Decisions (resolved at Checkpoint 1)
+
+All four decisions below were reviewed and resolved by Frank Zeyda at Checkpoint 1 ([PR #10 comment](https://github.com/Sigil-Logic/clafer/pull/10#issuecomment-5647934606)); decisions 3 and 4 changed from the original proposal, as recorded here.
 
 1. **AlloyLtl / `stateTrace.als` deferral.**  The behavioral (LTL) generator path remains 4.2-targeted and is deferred to the already-anticipated temporal follow-on issue ("exploiting Alloy 6 temporal logic for behavioral Clafer"), to be filed as part of this PR with the audit evidence above.  Rationale: the primed-identifier fix alone is insufficient (deep primes plus type errors in the trace encoding under 6.2), the encoding is superseded by Alloy 6's native temporal operators, no static-corpus or claferIG behavior depends on it (claferIG rejects behavioral `tmp.als` input today), and the issue's own out-of-scope note anticipates exactly this split.  **Consequence**: the first acceptance criterion is read as the full *static* Alloy corpus (115 models; 42 behavioral models documented as deferred), with the pre-existing gi84 failure documented and issue-tracked.
 2. **gi84 latent generator bug** is documented and filed as a follow-on (invalid field reference for top-level abstract clafers; rejected identically by 4.2 and 6.2; masked by non-gating validation).
-3. **`alloyIG.jar` stays a committed artifact** (as on master), rebuilt against 6.2.0 with `-release 17`.
+3. **`alloyIG.jar` is no longer a committed artifact** (resolved: Option B).  It is built from source by `make` (`javac --release 17` against the pinned Alloy jar) and gitignored: single source of truth, no stale-jar hazard, no binary review surface, and the better supply-chain story.  Consumers of the old binary-distribution flow build it with `make alloyIG.jar`.
 4. **Alloy version is pinned at 6.2.0** everywhere (Makefiles, manifest, validator, docs) because the shim touches non-stable internals.
+5. **claferIG CI gains a `macos-latest` (arm64) build/test job** (resolved: include) as durable evidence of the Apple Silicon unblock, alongside the x86_64 Linux job that also captures the behavioral baseline.
 
 ## V&V Plan
 
@@ -115,6 +118,14 @@ Residual risk: the shim still reaches into non-stable internals (reflective writ
 | Behavioral baseline (AC 4) | re-run `scripts/capture-alloy42-baseline.sh` on the ported branch (x86_64 CI, same scope/corpus) and compare against frozen `master:.evidence/alloy42-baseline/` (16 models, 1801 instances): per-model exit codes, instance counts, instance-set equality modulo enumeration order, enumeration-order drift, XML/JSON format drift | differences documented with rationale; re-baseline commit |
 | Apple Silicon unblock | local aarch64 claferIG build + test run + instance generation; probe transcripts in `.evidence/alloy62-arm64-probe/`; proposed `macos-latest` CI job | evidence captured either way |
 
+## Port Findings (implementation phase)
+
+Three empirical findings from the shim port, folded into the design above:
+
+1. **`A4Solution.writeXML` no longer tolerates a null macros iterable** (NPE in `A4SolutionWriter.writeInstance`, `extraSkolems`); the shim passes an empty list.  The 4.2 call passed `null`.
+2. **Kodkod logs INFO progress to stderr** through the slf4j-simple binding bundled in the dist jar; the shim sets `org.slf4j.simpleLogger.defaultLogLevel=warn` (and the older property spelling) in `main` before any Alloy class loads, keeping claferIG's stderr clean.
+3. **Solve time on a heavyweight corpus model is not a regression**: `ACCDemo_attributedFeatureModels.als` (integer `sum` at scope 10) solves in ~70 s under 6.2 on the audit host — and ~73 s under Alloy 4.2 with SAT4J on the same host.  6.2 is marginally faster; the cost is inherent to the model, and prover-vs-SAT4J makes no material difference (isolated by A/B runs of the ported shim).
+
 ## Risks
 
 | Risk | Mitigation |
@@ -122,7 +133,7 @@ Residual risk: the shim still reaches into non-stable internals (reflective writ
 | Instance enumeration order differs under 6.2 solver stack | Expected; the baseline comparison isolates order-only drift from instance-set changes; re-baseline with rationale (AC 4) |
 | 6.2 integer/overflow defaults differ from 4.2 in ways the encoding is sensitive to | `noOverflow` defaults to false (4.2-equivalent); bitwidth handling preserved via the ported `setBitwidth` op; baseline comparison surfaces any residual semantic drift |
 | Internal-API drift on future Alloy upgrades | Exact-version pin + the API-surface table above document the exposure |
-| Committed `alloyIG.jar` built with a newer JDK breaks CI | `javac -release 17` in the Makefile |
+| `alloyIG.jar` built with a newer JDK unloadable on the CI/runtime JDK | jar built from source with `javac --release 17` (matches Alloy 6.2.0's own class-file level) |
 
 ---
 
