@@ -1,20 +1,28 @@
 SRC_DIR  := src
 TEST_DIR := test
+
+# Alloy is acquired from Maven Central, pinned to an exact version and
+# verified against a SHA-256 (Sigil-Logic/clafer#5).
+ALLOY_VERSION := 6.2.0
+ALLOY_JAR := org.alloytools.alloy.dist-$(ALLOY_VERSION).jar
+ALLOY_URL := https://repo1.maven.org/maven2/org/alloytools/org.alloytools.alloy.dist/$(ALLOY_VERSION)/$(ALLOY_JAR)
+ALLOY_SHA256 := 6037cbeee0e8423c1c468447ed10f5fcf2f2743a2ffc39cb1c81f2905c0fdb9d
 ifeq ($(OS),Windows_NT)
 EXE := .exe
 endif
 
 all: build
 
-build: alloy4.2.jar
+build: $(ALLOY_JAR)
+	$(MAKE) verify-alloy
 	stack build
 
-install:
+install: build
 	mkdir -p $(to)
 	cp -f README.md $(to)/clafer-README.md
 	cp -f LICENSE $(to)/
 	cp -f CHANGES.md $(to)/clafer-CHANGES.md
-	cp -f alloy4.2.jar $(to)
+	cp -f $(ALLOY_JAR) $(to)
 	cp -f ecore2clafer.jar $(to)
 	cp `stack path --local-install-root`/bin/clafer$(EXE) $(to)
 
@@ -24,11 +32,11 @@ grammar:
 
 # Just like "init" but with enabled profiler
 # this will reinstall everything with profiling support, build clafer, and copy it to .
-prof: alloy4.2.jar
+prof: $(ALLOY_JAR)
 	stack build --executable-profiling --library-profiling --ghc-options="-auto-all -caf-all -rtsopts -osuf p_o"
 
 .PHONY: test
-test:
+test: build
 	cp `stack path --local-install-root`/bin/clafer$(EXE) .
 	stack test 2>/dev/null || :    # supress error message and exit code if fail
 	$(MAKE) -C $(TEST_DIR) test
@@ -66,21 +74,24 @@ codex:
 	codex update
 	mv codex.tags tags
 
-WGET_COMMAND := wget
-ifeq ($(OS),Windows_NT)
-	ifeq ($(shell which wget), which: wget: unkown command)
-		pacman -S make wget
-	endif
-else
-	UNAME_S := $(shell uname -s)
-	ifeq ($(UNAME_S),Darwin)
-		WGET_COMMAND := curl -O
-	endif
-endif
+# Download to a temporary file, verify, then atomically rename, so an
+# interrupted or corrupted download never becomes an "up to date" target.
+$(ALLOY_JAR):
+	@echo "Fetching Alloy $(ALLOY_VERSION) from Maven Central..."
+	curl -fsSL -o "$(ALLOY_JAR).tmp" "$(ALLOY_URL)"
+	@if command -v shasum > /dev/null 2>&1; then \
+		echo "$(ALLOY_SHA256)  $(ALLOY_JAR).tmp" | shasum -a 256 -c - ; \
+	else \
+		echo "$(ALLOY_SHA256)  $(ALLOY_JAR).tmp" | sha256sum -c - ; \
+	fi || { echo "[ERROR] $(ALLOY_JAR) checksum mismatch"; rm -f "$(ALLOY_JAR).tmp"; false; }
+	mv "$(ALLOY_JAR).tmp" "$(ALLOY_JAR)"
 
-alloy4.2.jar:
-	@if test ! -f "alloy4.2.jar"; then \
-		echo "[WARNING] Missing alloy4.2.jar. Downloading...";  \
-		$(WGET_COMMAND) http://alloytools.org/download/alloy4.2_2015-02-22.jar; \
-		mv alloy4.2_2015-02-22.jar alloy4.2.jar; \
-	fi
+# Re-verify the jar on every build entry, so a pre-existing corrupt file is
+# caught even though make considers the target up to date.
+.PHONY: verify-alloy
+verify-alloy:
+	@if command -v shasum > /dev/null 2>&1; then \
+		echo "$(ALLOY_SHA256)  $(ALLOY_JAR)" | shasum -a 256 -c - ; \
+	else \
+		echo "$(ALLOY_SHA256)  $(ALLOY_JAR)" | sha256sum -c - ; \
+	fi || { echo "[ERROR] $(ALLOY_JAR) failed verification; delete it and re-run make"; false; }

@@ -298,7 +298,7 @@ runValidate args' fo = do
   --   void $ system $  validateClafer path ++ fo'
 
 validateAlloy :: String -> String
-validateAlloy path = "java -cp \"" ++ path ++ "alloy4.2.jar\" edu.mit.csail.sdg.alloy4whole.ExampleUsingTheCompiler "
+validateAlloy path = "java -Djava.awt.headless=true -jar \"" ++ path ++ "org.alloytools.alloy.dist-6.2.0.jar\" commands "
 
 validateChoco :: String -> String
 validateChoco path = "java -jar \"" ++ path ++ "chocosolver.jar\" -v --file "

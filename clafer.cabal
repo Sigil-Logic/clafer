@@ -44,6 +44,7 @@ executable clafer
                       , cmdargs >= 0.10.20
                       , clafer
     other-modules:      Paths_clafer
+    autogen-modules:    Paths_clafer
 
 library
     import:             shared-deps
@@ -111,6 +112,7 @@ library
                       , Language.Clafer.SplitJoin
                       , Paths_clafer
     other-modules:      GetURL
+    autogen-modules:    Paths_clafer
 
 Test-Suite test-suite
     import:             shared-deps
