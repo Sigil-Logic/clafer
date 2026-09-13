@@ -52,9 +52,10 @@ prof: $(ALLOY_JAR)
 .PHONY: test
 test: build verify-chocosolver
 	cp `stack path --local-install-root`/bin/clafer$(EXE) .
-	stack test 2>/dev/null || :    # supress error message and exit code if fail
+	stack test
 	$(MAKE) -C $(TEST_DIR) test
 
+.PHONY: generateAlloyJSHTMLDot validateAlloyOutput validateChocoOutput diffRegressions
 generateAlloyJSHTMLDot:
 	$(MAKE) -C $(TEST_DIR) generateAlloyJSHTMLDot
 
