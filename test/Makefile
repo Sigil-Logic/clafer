@@ -106,20 +106,24 @@ newReg:
 	@echo "----------------------------"
 	@git add $(REG_DIR)/*.reg
 
+# The failing/ directory holds committed fixtures (e.g.,
+# gi89-ref-to-constant.js), not generated output -- prune it so clean
+# never deletes tracked files (found under Sigil-Logic/clafer#13: every
+# `make test` run silently deleted the fixture from the worktree).
 clean:
 	@echo "==============="
 	@echo "| Cleaning up |"
 	@echo "==============="
 	@echo ""
 	@echo 'Removing *.als'
-	@find . -type f -name '*.als' -print0 | xargs -0 rm -f
+	@find . -path ./failing -prune -o -type f -name '*.als' -print0 | xargs -0 rm -f
 	@echo 'Removing *.js'
-	@find . -type f -name '*.js' -print0 | xargs -0 rm -f
+	@find . -path ./failing -prune -o -type f -name '*.js' -print0 | xargs -0 rm -f
 	@echo 'Removing *.html'
-	@find . -type f -name '*.html' -print0 | xargs -0 rm -f
+	@find . -path ./failing -prune -o -type f -name '*.html' -print0 | xargs -0 rm -f
 	@echo 'Removing *.dot'
-	@find . -type f -name '*.dot' -print0 | xargs -0 rm -f
+	@find . -path ./failing -prune -o -type f -name '*.dot' -print0 | xargs -0 rm -f
 	@echo 'Removing *.dot.svg'
-	@find . -type f -name '*.dot.svg' -print0 | xargs -0 rm -f
+	@find . -path ./failing -prune -o -type f -name '*.dot.svg' -print0 | xargs -0 rm -f
 	@echo 'Removing *~'
 	@find . -type f -name '*~' -print0 | xargs -0 rm -f
