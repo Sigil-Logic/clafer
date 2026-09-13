@@ -30,7 +30,7 @@ build: $(ALLOY_JAR)
 	$(MAKE) verify-alloy
 	stack build
 
-install: build $(CHOCOSOLVER_JAR)
+install: build verify-chocosolver
 	mkdir -p $(to)
 	cp -f README.md $(to)/clafer-README.md
 	cp -f LICENSE $(to)/
@@ -50,7 +50,7 @@ prof: $(ALLOY_JAR)
 	stack build --executable-profiling --library-profiling --ghc-options="-auto-all -caf-all -rtsopts -osuf p_o"
 
 .PHONY: test
-test: build $(CHOCOSOLVER_JAR)
+test: build verify-chocosolver
 	cp `stack path --local-install-root`/bin/clafer$(EXE) .
 	stack test 2>/dev/null || :    # supress error message and exit code if fail
 	$(MAKE) -C $(TEST_DIR) test
@@ -100,22 +100,38 @@ $(ALLOY_JAR):
 	fi || { echo "[ERROR] $(ALLOY_JAR) checksum mismatch"; rm -f "$(ALLOY_JAR).tmp"; false; }
 	mv "$(ALLOY_JAR).tmp" "$(ALLOY_JAR)"
 
-# Clone the fork at the pinned commit, verify HEAD matches the pin, build
-# with Maven, then atomically rename the staged jar, so an interrupted or
-# wrong-revision build never becomes an "up to date" target.  Tests are the
-# fork's own CI's responsibility (Sigil-Logic/chocosolver); this target only
-# acquires the artifact, hence -DskipTests.
+# Clone the fork at the pinned commit (--no-checkout so the unpinned
+# default branch is never materialized), verify HEAD matches the pin,
+# build with Maven, then atomically rename the staged jar.  The recipe is
+# one fail-fast shell block whose EXIT trap removes the build directory
+# and staging file on any outcome, so an interrupted or wrong-revision
+# build never becomes an "up to date" target and leaves no residue.
+# Tests are the fork's own CI's responsibility (Sigil-Logic/chocosolver);
+# this target only acquires the artifact, hence -DskipTests.  The sidecar
+# $(CHOCOSOLVER_JAR).commit stamp records the pin the jar was built from,
+# for verify-chocosolver below.
 $(CHOCOSOLVER_JAR):
 	@echo "Building chocosolver $(CHOCOSOLVER_VERSION) from $(CHOCOSOLVER_REPO) @ $(CHOCOSOLVER_COMMIT)..."
-	rm -rf "$(CHOCOSOLVER_BUILD_DIR)"
-	git clone -q --filter=blob:none "$(CHOCOSOLVER_REPO)" "$(CHOCOSOLVER_BUILD_DIR)"
-	git -C "$(CHOCOSOLVER_BUILD_DIR)" checkout -q "$(CHOCOSOLVER_COMMIT)"
-	@test "`git -C "$(CHOCOSOLVER_BUILD_DIR)" rev-parse HEAD`" = "$(CHOCOSOLVER_COMMIT)" \
-		|| { echo "[ERROR] chocosolver checkout is not the pinned commit $(CHOCOSOLVER_COMMIT)"; false; }
-	mvn -q -f "$(CHOCOSOLVER_BUILD_DIR)/pom.xml" -DskipTests package
-	cp "$(CHOCOSOLVER_BUILD_DIR)/target/chocosolver-$(CHOCOSOLVER_VERSION)-jar-with-dependencies.jar" "$(CHOCOSOLVER_JAR).tmp"
-	mv "$(CHOCOSOLVER_JAR).tmp" "$(CHOCOSOLVER_JAR)"
-	rm -rf "$(CHOCOSOLVER_BUILD_DIR)"
+	set -e; \
+	trap 'rm -rf "$(CHOCOSOLVER_BUILD_DIR)" "$(CHOCOSOLVER_JAR).tmp"' EXIT; \
+	rm -rf "$(CHOCOSOLVER_BUILD_DIR)" "$(CHOCOSOLVER_JAR).tmp"; \
+	git clone -q --filter=blob:none --no-checkout "$(CHOCOSOLVER_REPO)" "$(CHOCOSOLVER_BUILD_DIR)"; \
+	git -C "$(CHOCOSOLVER_BUILD_DIR)" checkout -q "$(CHOCOSOLVER_COMMIT)"; \
+	actual=$$(git -C "$(CHOCOSOLVER_BUILD_DIR)" rev-parse HEAD); \
+	test "$$actual" = "$(CHOCOSOLVER_COMMIT)" || { echo "[ERROR] chocosolver checkout is $$actual, not the pinned commit $(CHOCOSOLVER_COMMIT)"; exit 1; }; \
+	mvn -q -f "$(CHOCOSOLVER_BUILD_DIR)/pom.xml" -DskipTests package; \
+	cp "$(CHOCOSOLVER_BUILD_DIR)/target/chocosolver-$(CHOCOSOLVER_VERSION)-jar-with-dependencies.jar" "$(CHOCOSOLVER_JAR).tmp"; \
+	mv "$(CHOCOSOLVER_JAR).tmp" "$(CHOCOSOLVER_JAR)"; \
+	printf '%s\n' "$(CHOCOSOLVER_COMMIT)" > "$(CHOCOSOLVER_JAR).commit"
+
+# Re-verify the pin stamp on every test/install entry, so a jar left from
+# before a pin bump (or an unrelated file at that path) is caught even
+# though make considers the file target up to date.  Mirrors verify-alloy.
+.PHONY: verify-chocosolver
+verify-chocosolver: $(CHOCOSOLVER_JAR)
+	@test -f "$(CHOCOSOLVER_JAR).commit" && \
+	test "$$(cat "$(CHOCOSOLVER_JAR).commit")" = "$(CHOCOSOLVER_COMMIT)" \
+		|| { echo "[ERROR] $(CHOCOSOLVER_JAR) does not match the pinned commit $(CHOCOSOLVER_COMMIT); delete $(CHOCOSOLVER_JAR) and $(CHOCOSOLVER_JAR).commit and re-run make"; false; }
 
 # Re-verify the jar on every build entry, so a pre-existing corrupt file is
 # caught even though make considers the target up to date.
