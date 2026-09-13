@@ -41,6 +41,13 @@ import Language.Clafer.Intermediate.Intclafer hiding (exp)
 data GenEnv = GenEnv
   { claferargs :: ClaferArgs
   , uidIClaferMap :: UIDIClaferMap
+    -- ^ resolver-time map, built before 'optimizeModule' runs
+  , emittedUidIClaferMap :: UIDIClaferMap
+    -- ^ map of the optimized module actually being generated.  Without
+    -- --keep-unused, remUnusedAbs prunes unused abstracts (and their
+    -- subtrees) after the resolver-time map above is built, so any
+    -- enumeration of clafers whose relations appear in the output
+    -- (genParentRel) must use this map, not the resolver-time one.
   , forScopes :: String
   }  deriving (Show)
 
@@ -55,7 +62,7 @@ genModule    claferargs'   (imodule, genv)    scopes              otherTokens' =
   genScopes    scopes'           = " but " ++ intercalate ", " (map (\ (uid', scope)  -> show scope ++ " " ++ uid') scopes')
 
   forScopes' = "for 1" ++ genScopes scopes
-  genEnv = GenEnv claferargs' (uidClaferMap genv) forScopes'
+  genEnv = GenEnv claferargs' (uidClaferMap genv) (createUidIClaferMap imodule) forScopes'
   output = header genEnv otherTokens' +++ (cconcat $ map (genDeclaration genEnv) (_mDecls imodule))
 
 header :: GenEnv -> [Token]     -> Concat
@@ -423,7 +430,7 @@ genExInteger    element'  (y,z) x  =
 -- Generate code for logical expressions
 
 genPExp :: GenEnv -> [String] -> PExp -> Concat
-genPExp    genEnv    resPath     x     = genPExp' genEnv resPath $ adjustPExp (uidIClaferMap genEnv) resPath x
+genPExp    genEnv    resPath     x     = genPExp' genEnv resPath $ adjustPExp (emittedUidIClaferMap genEnv) resPath x
 
 genPExp' :: GenEnv -> [String] -> PExp                      -> Concat
 genPExp'    genEnv    resPath     (PExp iType' pid' pos exp') = case exp' of
@@ -584,6 +591,12 @@ adjustNav _ _ _ = error "Function adjustNav Expect a IFunExp or IClaferID as one
 -- 'The name "@r_<uid>" cannot be found' (gsdlab/clafer gi84; Sigil-Logic
 -- clafer#12).  Map.elems enumerates in ascending UID order, keeping the
 -- emitted union deterministic.
+--
+-- The map passed here MUST be the post-optimization map of the module
+-- being generated ('emittedUidIClaferMap'): the resolver-time map still
+-- contains clafers that remUnusedAbs pruned, and enumerating those would
+-- reintroduce dangling relation names (HOARDE Codex Cycle 1 finding on
+-- PR #14).
 genParentRel :: UIDIClaferMap -> UID -> String
 genParentRel uidIClaferMap' uid'
   | isTopLevelByUID uidIClaferMap' uid' == Just True =

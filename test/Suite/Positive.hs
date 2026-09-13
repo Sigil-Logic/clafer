@@ -25,6 +25,7 @@ module Suite.Positive (tg_Test_Suite_Positive) where
 import Functions
 import Language.Clafer.Intermediate.Intclafer
 import Data.Foldable hiding (forM_)
+import Data.List (isInfixOf)
 import Data.Maybe
 import Control.Monad
 import Language.Clafer
@@ -58,6 +59,22 @@ case_reference_Unused_Abstract_Clafer = do
         when (not $ compiledCheck compiled) $ putStrLn ("i235.cfr failed for scope_strategy = " ++ ss))
     (andMap (compiledCheck . snd) compiledClafers
         @? "reference_Unused_Abstract_Clafer (i235) failed, error for referencing unused abstract clafer")
+
+-- Sigil-Logic/clafer#12 (PR #14, HOARDE Codex Cycle 1 finding): under the
+-- default flags (keep_unused = False) remUnusedAbs prunes abstract Container
+-- together with its nested Child, so the `parent` translation for the
+-- top-level abstract Feature must enumerate the optimized module, not the
+-- resolver-time map -- otherwise it emits the pruned relation r_c0_Child.
+case_parent_ref_skips_pruned_extenders :: Assertion
+case_parent_ref_skips_pruned_extenders = do
+    let model = "abstract Feature\n    [ no parent ]\n\nabstract Container\n    Child : Feature\n\nConcrete : Feature"
+    let compiled = compileOneFragment defaultClaferArgs model
+    compiledCheck compiled @? "parent_ref_skips_pruned_extenders: model failed to compile"
+    let alloyCode = outputCode $ fromJust $ Map.lookup Alloy $ fromRight compiled
+    (not ("r_c0_Child" `isInfixOf` alloyCode)
+        @? "parent_ref_skips_pruned_extenders: output references the pruned containment relation r_c0_Child")
+    (("~(none -> none)" `isInfixOf` alloyCode)
+        @? "parent_ref_skips_pruned_extenders: expected the empty parent relation ~(none -> none) when no emitted nested extender exists")
 
 case_nonempty_cards :: Assertion
 case_nonempty_cards = do

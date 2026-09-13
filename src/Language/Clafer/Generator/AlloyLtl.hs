@@ -815,6 +815,11 @@ adjustIExp ctx x = case x of
 
 -- Essentially replaces IClaferId "parent" with appropriate relation name
 -- Example "this.parent" becomes "this.~@r_parent"
+-- TODO (#11, #12): retains the unconditional `~@r_<uid>` translation of
+-- `parent`, which dangles for top-level clafers (the static-generator copy
+-- was fixed in Generator/Alloy.hs under #12).  Deliberately not fixed here:
+-- this behavioral path is 4.2-targeted and superseded by the Alloy 6
+-- temporal port tracked in #11.
 adjustNav :: [String] -> IExp -> (IExp, [String])
 adjustNav resPath' x@(IFunExp op' (pexp0:pexp:_))
   | op' == iJoin = (IFunExp iJoin
