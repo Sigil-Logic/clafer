@@ -40,14 +40,14 @@ import Language.Clafer.Intermediate.Intclafer hiding (exp)
 
 data GenEnv = GenEnv
   { claferargs :: ClaferArgs
+    -- | resolver-time map, built before 'optimizeModule' runs
   , uidIClaferMap :: UIDIClaferMap
-    -- ^ resolver-time map, built before 'optimizeModule' runs
-  , emittedUidIClaferMap :: UIDIClaferMap
-    -- ^ map of the optimized module actually being generated.  Without
+    -- | map of the optimized module actually being generated.  Without
     -- --keep-unused, remUnusedAbs prunes unused abstracts (and their
     -- subtrees) after the resolver-time map above is built, so any
     -- enumeration of clafers whose relations appear in the output
     -- (genParentRel) must use this map, not the resolver-time one.
+  , emittedUidIClaferMap :: UIDIClaferMap
   , forScopes :: String
   }  deriving (Show)
 
