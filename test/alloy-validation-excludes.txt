@@ -1,0 +1,62 @@
+# Alloy-validation exclusions for the gated test harness
+# (Sigil-Logic/clafer#16; consumed by test/Makefile validateAlloyOutput).
+#
+# Each entry names a generated file under test/positive/ that is
+# EXPECTED to be rejected by `java -jar org.alloytools.alloy.dist-6.2.0.jar
+# commands`.  Every other generated .als is exit-code-gated; entries
+# here are strict expected failures: if Alloy starts accepting one, or
+# it stops being generated, the harness fails with a [STALE] error and
+# the entry must be removed.
+#
+# Provenance: all 42 entries are the behavioral (AlloyLtl generator)
+# tmp_* family.  They target the Alloy 4.2 stateTrace.als trace
+# encoding, which Alloy 6.2 rejects -- primed identifiers became
+# temporal-operator syntax in Alloy 6 (see doc/alloy-6.2-migration.md,
+# "Corpus audit").  The family is deferred wholesale to
+# Sigil-Logic/clafer#11 (behavioral Clafer on Alloy 6 native temporal
+# logic); landing #11 must empty this list.  Note the two
+# non-temporal behavioral models tmp_DefaultGlobal.als and
+# tmp_Global00.als validate clean and are deliberately NOT excluded:
+# exclusion is by name, not by tmp_ prefix.
+tmp_after01.als
+tmp_afteruntil01.als
+tmp_before01.als
+tmp_betweenand01.als
+tmp_clafertransitions01.als
+tmp_clafertransitions02.als
+tmp_combinedEGX01.als
+tmp_combinedEGX02.als
+tmp_eventually01.als
+tmp_eventually02.als
+tmp_eventually03.als
+tmp_eventually04.als
+tmp_final01.als
+tmp_final02.als
+tmp_finally01.als
+tmp_finally02.als
+tmp_Global01.als
+tmp_Global02.als
+tmp_Global03.als
+tmp_Global04.als
+tmp_Global05.als
+tmp_initially01.als
+tmp_initially02.als
+tmp_liftingNestedConstraints.als
+tmp_next01.als
+tmp_next02.als
+tmp_next03.als
+tmp_next04.als
+tmp_next05.als
+tmp_TLSHandshakeProtocol_distributed.als
+tmp_trafficLight_history.als
+tmp_TrafficLight.als
+tmp_TrafficLight1.als
+tmp_transitionconstraint01.als
+tmp_transitionconstraint02.als
+tmp_transitionconstraint04.als
+tmp_transitionconstraintguard01.als
+tmp_transitionconstraintguard02.als
+tmp_U01.als
+tmp_until01.als
+tmp_W01.als
+tmp_weakuntil01.als

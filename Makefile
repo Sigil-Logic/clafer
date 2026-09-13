@@ -58,6 +58,12 @@ test: build verify-chocosolver
 generateAlloyJSHTMLDot:
 	$(MAKE) -C $(TEST_DIR) generateAlloyJSHTMLDot
 
+validateAlloyOutput:
+	$(MAKE) -C $(TEST_DIR) validateAlloyOutput
+
+validateChocoOutput:
+	$(MAKE) -C $(TEST_DIR) validateChocoOutput
+
 diffRegressions:
 	$(MAKE) -C $(TEST_DIR) diffRegressions
 
