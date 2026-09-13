@@ -106,10 +106,10 @@ generateAlloyJSHTMLDot:
 # file), except the explicit by-name exclusions in $(ALLOY_EXCLUDES).
 # A second pass asserts every exclusion is still an expected failure.
 validateAlloyOutput:
-	@echo "==========================================================="
-	@echo "| Testing 'Positive' suite - validating Alloy output      |"
+	@echo "=================================================================="
+	@echo "| Testing 'Positive' suite - validating Alloy output             |"
 	@echo "|   (exit-code-gated; exclusions: $(ALLOY_EXCLUDES)) |"
-	@echo "==========================================================="
+	@echo "=================================================================="
 
 	@if test ! -f "$(ALLOY_JAR)"; then \
 		echo "[ERROR] Missing $(ALLOY_JAR)."; false; \
@@ -160,10 +160,10 @@ validateAlloyOutput:
 # exclusions in $(CHOCO_EXCLUDES).  Same strict-exclusion semantics as
 # validateAlloyOutput.
 validateChocoOutput:
-	@echo "==========================================================="
-	@echo "| Testing 'Positive' suite - validating Choco output      |"
+	@echo "=================================================================="
+	@echo "| Testing 'Positive' suite - validating Choco output             |"
 	@echo "|   (exit-code-gated; exclusions: $(CHOCO_EXCLUDES)) |"
-	@echo "==========================================================="
+	@echo "=================================================================="
 
 	@if test ! -f "$(CHOCOSOLVER_JAR)"; then \
 		echo "[ERROR] Missing $(CHOCOSOLVER_JAR)."; false; \
