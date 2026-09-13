@@ -26,6 +26,7 @@ module Language.Clafer.Generator.Alloy (genModule) where
 import Control.Applicative
 import Control.Monad.State
 import Data.List
+import qualified Data.Map as Map
 import Data.Maybe
 import Prelude
 
@@ -39,7 +40,14 @@ import Language.Clafer.Intermediate.Intclafer hiding (exp)
 
 data GenEnv = GenEnv
   { claferargs :: ClaferArgs
+    -- | resolver-time map, built before 'optimizeModule' runs
   , uidIClaferMap :: UIDIClaferMap
+    -- | map of the optimized module actually being generated.  Without
+    -- --keep-unused, remUnusedAbs prunes unused abstracts (and their
+    -- subtrees) after the resolver-time map above is built, so any
+    -- enumeration of clafers whose relations appear in the output
+    -- (genParentRel) must use this map, not the resolver-time one.
+  , emittedUidIClaferMap :: UIDIClaferMap
   , forScopes :: String
   }  deriving (Show)
 
@@ -54,7 +62,7 @@ genModule    claferargs'   (imodule, genv)    scopes              otherTokens' =
   genScopes    scopes'           = " but " ++ intercalate ", " (map (\ (uid', scope)  -> show scope ++ " " ++ uid') scopes')
 
   forScopes' = "for 1" ++ genScopes scopes
-  genEnv = GenEnv claferargs' (uidClaferMap genv) forScopes'
+  genEnv = GenEnv claferargs' (uidClaferMap genv) (createUidIClaferMap imodule) forScopes'
   output = header genEnv otherTokens' +++ (cconcat $ map (genDeclaration genEnv) (_mDecls imodule))
 
 header :: GenEnv -> [Token]     -> Concat
@@ -422,7 +430,7 @@ genExInteger    element'  (y,z) x  =
 -- Generate code for logical expressions
 
 genPExp :: GenEnv -> [String] -> PExp -> Concat
-genPExp    genEnv    resPath     x     = genPExp' genEnv resPath $ adjustPExp resPath x
+genPExp    genEnv    resPath     x     = genPExp' genEnv resPath $ adjustPExp (emittedUidIClaferMap genEnv) resPath x
 
 genPExp' :: GenEnv -> [String] -> PExp                      -> Concat
 genPExp'    genEnv    resPath     (PExp iType' pid' pos exp') = case exp' of
@@ -538,34 +546,68 @@ genOp    op'
 genOp op' = error $ "[bug] Alloy.genOp: Unmatched operator: " ++ op'
 
 -- adjust parent
-adjustPExp :: [String] -> PExp -> PExp
-adjustPExp resPath (PExp t pid' pos x) = PExp t pid' pos $ adjustIExp resPath x
+adjustPExp :: UIDIClaferMap -> [String] -> PExp -> PExp
+adjustPExp uidIClaferMap' resPath (PExp t pid' pos x) = PExp t pid' pos $ adjustIExp uidIClaferMap' resPath x
 
-adjustIExp :: [String] -> IExp -> IExp
-adjustIExp resPath x = case x of
-  IDeclPExp q d pexp -> IDeclPExp q d $ adjustPExp resPath pexp
+adjustIExp :: UIDIClaferMap -> [String] -> IExp -> IExp
+adjustIExp uidIClaferMap' resPath x = case x of
+  IDeclPExp q d pexp -> IDeclPExp q d $ adjustPExp uidIClaferMap' resPath pexp
   IFunExp op' exps' -> adjNav $ IFunExp op' $ map adjExps exps'
     where
     (adjNav, adjExps) = if op' == iJoin then (aNav, id)
-                        else (id, adjustPExp resPath)
+                        else (id, adjustPExp uidIClaferMap' resPath)
   IClaferId{} -> aNav x
   _  -> x
   where
-  aNav = fst.(adjustNav resPath)
+  aNav = fst.(adjustNav uidIClaferMap' resPath)
 
-adjustNav :: [String] -> IExp -> (IExp, [String])
-adjustNav resPath x@(IFunExp op' (pexp0:pexp:_))
+adjustNav :: UIDIClaferMap -> [String] -> IExp -> (IExp, [String])
+adjustNav uidIClaferMap' resPath x@(IFunExp op' (pexp0:pexp:_))
   | op' == iJoin = (IFunExp iJoin
                    [pexp0{_exp = iexp0},
                     pexp{_exp = iexp}], path')
   | otherwise   = (x, resPath)
   where
-  (iexp0, path) = adjustNav resPath (_exp pexp0)
-  (iexp, path') = adjustNav path    (_exp pexp)
-adjustNav resPath x@(IClaferId _ id' _ _)
-  | id' == parentIdent = (x{_sident = "~@" ++ (genRelName $ head resPath)}, tail resPath)
+  (iexp0, path) = adjustNav uidIClaferMap' resPath (_exp pexp0)
+  (iexp, path') = adjustNav uidIClaferMap' path    (_exp pexp)
+adjustNav uidIClaferMap' resPath x@(IClaferId _ id' _ _)
+  | id' == parentIdent = (x{_sident = genParentRel uidIClaferMap' $ head resPath}, tail resPath)
   | otherwise    = (x, resPath)
-adjustNav _ _ = error "Function adjustNav Expect a IFunExp or IClaferID as one of it's argument but it was given a differnt IExp" --This should never happen
+adjustNav _ _ _ = error "Function adjustNav Expect a IFunExp or IClaferID as one of it's argument but it was given a differnt IExp" --This should never happen
+
+-- | The Alloy relational expression denoting `parent` inside a constraint of
+-- the clafer with the given UID.
+--
+-- A nested clafer is contained via its own containment relation `r_<uid>`
+-- declared in its parent's sig, so `parent` is that relation's inverse.
+--
+-- A top-level clafer has no containment relation, so no `r_<uid>` field
+-- exists to invert.  Its atoms are only ever contained as instances of
+-- nested clafers that (transitively) extend it, so `parent` is the inverse
+-- of the union of those clafers' containment relations -- and the empty
+-- binary relation when no such clafer exists (a top-level instance has no
+-- parent in the generated model).  The previous code emitted the dangling
+-- `~@r_<uid>` unconditionally, which Alloy rejects with
+-- 'The name "@r_<uid>" cannot be found' (gsdlab/clafer gi84; Sigil-Logic
+-- clafer#12).  Map.elems enumerates in ascending UID order, keeping the
+-- emitted union deterministic.
+--
+-- The map passed here MUST be the post-optimization map of the module
+-- being generated ('emittedUidIClaferMap'): the resolver-time map still
+-- contains clafers that remUnusedAbs pruned, and enumerating those would
+-- reintroduce dangling relation names (HOARDE Codex Cycle 1 finding on
+-- PR #14).
+genParentRel :: UIDIClaferMap -> UID -> String
+genParentRel uidIClaferMap' uid'
+  | isTopLevelByUID uidIClaferMap' uid' == Just True =
+      case nestedExtenders of
+        [] -> "~(none -> none)"
+        _  -> "~(" ++ intercalate " + " (map (("@" ++) . genRelName . _uid) nestedExtenders) ++ ")"
+  | otherwise = "~@" ++ genRelName uid'
+  where
+  nestedExtenders = [ c | c <- Map.elems uidIClaferMap'
+                    , not $ isTopLevel c
+                    , isJust $ findUIDinSupers uidIClaferMap' uid' c ]
 
 genQuant :: IQuant -> String
 genQuant    x       = case x of

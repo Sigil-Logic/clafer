@@ -1,7 +1,7 @@
 # Alloy 6.2.0 Migration Plan (clafer and claferIG)
 
 **Status**: Living document
-**Version**: 0.4.0
+**Version**: 0.4.1
 **Date**: 2026-09-12
 **Project**: HOARDE (Sigil-Logic Clafer fork, epic [HOARDE#608](https://github.com/Sigil-Logic/HOARDE/issues/608))
 **Issue**: [#5](https://github.com/Sigil-Logic/clafer/issues/5)
@@ -37,7 +37,7 @@ Every corpus model was compiled with the baseline compiler (`clafer -s -k -m all
 Key findings:
 
 1. **The static Alloy generator output is already Alloy 6.2-compatible.**  No generator changes are required for the static subset; generated text is unchanged, so the `.als` regression baselines (`test/regression/*.als.reg`) and the 47-model PLE corpus byte-identity are preserved by construction.
-2. **The single static failure is pre-existing, not a 6.2 regression.**  `gi84-parent-top-level-abstract.als` references a field `@r_c0_Feature` that does not exist in the generated model; Alloy **4.2 rejects it with the identical error** ("The name \"@r_c0_Feature\" cannot be found").  It has gone unnoticed because `runValidate` invokes the validator via `void $ system` — validation is non-gating.  Disposition: file a follow-on generator-bug issue; out of scope here.
+2. **The single static failure is pre-existing, not a 6.2 regression.**  `gi84-parent-top-level-abstract.als` references a field `@r_c0_Feature` that does not exist in the generated model; Alloy **4.2 rejects it with the identical error** ("The name \"@r_c0_Feature\" cannot be found").  It has gone unnoticed because `runValidate` invokes the validator via `void $ system` — validation is non-gating.  Disposition: file a follow-on generator-bug issue; out of scope here.  **Update (2026-09-12)**: fixed under [#12](https://github.com/Sigil-Logic/clafer/issues/12) — `parent` inside a constraint of a top-level clafer now emits the inverse of the union of the containment relations of the nested clafers that transitively extend it (`Generator/Alloy.hs`, `genParentRel`), the gi84 regression baseline was deliberately re-baselined, and the static corpus stands at **115/115 accepted by Alloy 6.2.0**, closing this exception.
 3. **All 42 behavioral failures originate in the LTL encoding, and the port is not mechanical.**  Alloy 6 made `'` the temporal prime operator, so primed identifiers (`s'` in `Generator/stateTrace.als`; `t'`, `t''`, … freshened per nesting level by `Generator/AlloyLtl.hs`) are now syntax errors.  Renaming the primes in five sampled models lets two parse, but the deeper models still fail — arbitrarily deep primes (`t'''`, `t''''`) and, after full renaming, **type errors** in the trace encoding (e.g., `tmp_Global05.als:74`), i.e., 4.2→6 resolver/type-system differences reach the encoding's semantics.  Since Alloy 6's native temporal logic (Electrum: `var` sigs, LTL operators) supersedes the hand-rolled `stateTrace.als` trace encoding entirely, porting the old encoding would be effort spent on an artifact the follow-on issue replaces.
 
 ### Solver stack on aarch64 (the claferIG unblock)
