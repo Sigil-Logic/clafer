@@ -1,10 +1,17 @@
 SUITE_DIR = positive
 REG_DIR = regression
-# -v (compile-time advisory validation) is deliberately NOT passed: the
-# generated output is validated exactly once, exit-code-gated, by the
-# validateAlloyOutput / validateChocoOutput targets below
-# (Sigil-Logic/clafer#16).
-CLAFER = ../clafer -s -k --tooldir=..
+# -v stays in the generation flags for OUTPUT PARITY, not for its
+# advisory validation: the Alloy generator suppresses the 'run show'
+# scope command when -v is set (Generator/Alloy.hs, header), and the
+# committed test/regression/*.als.reg baselines are -v-shaped --
+# dropping -v makes every generated .als differ from its baseline at
+# the run-command line (found by Frank Zeyda on PR #19; the advisory
+# diffRegressions legs masked it).  Gating still happens exactly once,
+# in validateAlloyOutput / validateChocoOutput below
+# (Sigil-Logic/clafer#16); the -v validator chatter during generation
+# is redundant but tolerated for baseline parity until the generator
+# coupling is decoupled (decision pending on PR #19).
+CLAFER = ../clafer -s -v -k --tooldir=..
 
 # Validators for the generated output (same invocations the compiler's
 # own -v flag uses; see runValidate in src/Language/Clafer.hs).
