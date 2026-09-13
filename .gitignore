@@ -18,4 +18,5 @@ codex.tags
 org.alloytools.alloy.dist-*.jar
 alloy4.2.jar
 chocosolver.jar
+chocosolver-build.tmp/
 stack.yaml.lock

@@ -77,6 +77,8 @@ Optional:
   * only needed for running Alloy validation
 * [Alloy](https://github.com/AlloyTools/org.alloytools.alloy) 6.2.0 — fetched automatically from Maven Central by `make` (`org.alloytools:org.alloytools.alloy.dist:6.2.0`, SHA-256-verified)
   * only needed for Alloy output validation
+* [Apache Maven](https://maven.apache.org/) 3.8+ and [Git](http://git-scm.com/)
+  * only needed for Choco output validation and `make test`/`make install`: `make chocosolver.jar` builds `chocosolver.jar` from the [Sigil-Logic/chocosolver](https://github.com/Sigil-Logic/chocosolver) fork at a pinned commit, staged next to the compiler — no upstream binary distribution of chocosolver exists ([#13](https://github.com/Sigil-Logic/clafer/issues/13))
 * [GraphViz](http://graphviz.org/)
   * the program `dot` is needed only in the `html` mode for SVG graph generation
 
