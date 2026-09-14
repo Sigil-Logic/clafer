@@ -40,7 +40,7 @@ GEN_MANIFEST = .generate-models.list
 ALLOY_MANIFEST = .validate-alloy.list
 CHOCO_MANIFEST = .validate-choco.list
 
-.PHONY: test generateAlloyJSHTMLDot validateAlloyOutput validateChocoOutput diffRegressions reg newReg clean
+.PHONY: test generateAlloyJSHTMLDot validateAlloyOutput validateChocoOutput validateCliGating diffRegressions reg newReg clean
 
 UNAME := $(shell uname | tr "A-Z" "a-z")
 
@@ -75,6 +75,7 @@ test:
 	$(MAKE) generateAlloyJSHTMLDot
 	$(MAKE) validateAlloyOutput
 	$(MAKE) validateChocoOutput
+	$(MAKE) validateCliGating
 	$(MAKE) diffRegressions
 
 generateAlloyJSHTMLDot:
@@ -207,6 +208,37 @@ validateChocoOutput:
 		done; \
 		[ $$stale -eq 0 ] || { echo "$$stale stale exclusion(s) in $(CHOCO_EXCLUDES)."; false; }; \
 	}
+
+# CLI -v gating semantics (Sigil-Logic/clafer#20; regressions for the
+# PR #23 HOARDE Codex Cycle 1 findings): -v must propagate a validator
+# rejection as a non-zero clafer exit, stay exit 0 on accepted models,
+# skip cleanly under console output (-o, which writes no files to
+# validate), and must not misread a path containing spaces as a
+# rejection (validators are invoked with argument lists via rawSystem,
+# not shell-tokenized command strings).
+CLI_CLAFER = $(CURDIR)/../clafer -s -k --tooldir=$(CURDIR)/..
+
+validateCliGating:
+	@echo "=================================================================="
+	@echo "| Testing CLI -v gating semantics (Sigil-Logic/clafer#20)        |"
+	@echo "=================================================================="
+	@tmp=$$(mktemp -d); \
+	status=0; \
+	cp $(SUITE_DIR)/i23.cfr $(SUITE_DIR)/tmp_before01.cfr "$$tmp/"; \
+	mkdir "$$tmp/with space"; cp $(SUITE_DIR)/i23.cfr "$$tmp/with space/"; \
+	if ! (cd "$$tmp" && $(CLI_CLAFER) -v -m=alloy -m=choco i23.cfr >/dev/null 2>&1); then \
+		echo "[FAIL] accepted model: clafer -v must exit 0"; status=1; fi; \
+	if (cd "$$tmp" && $(CLI_CLAFER) -v -m=alloy tmp_before01.cfr >/dev/null 2>&1); then \
+		echo "[FAIL] rejected model: clafer -v must exit non-zero"; status=1; fi; \
+	if ! out=$$(cd "$$tmp" && $(CLI_CLAFER) -v -o -m=alloy i23.cfr 2>&1); then \
+		echo "[FAIL] console output: clafer -v -o must exit 0"; status=1; \
+	elif ! printf '%s\n' "$$out" | grep -q "Validation skipped"; then \
+		echo "[FAIL] console output: skip notice missing"; status=1; fi; \
+	if ! (cd "$$tmp" && $(CLI_CLAFER) -v -m=alloy -m=choco "with space/i23.cfr" >/dev/null 2>&1); then \
+		echo "[FAIL] path with spaces: accepted model must exit 0"; status=1; fi; \
+	rm -rf "$$tmp"; \
+	if [ $$status -eq 0 ]; then echo "CLI gating: 4 probes passed."; fi; \
+	[ $$status -eq 0 ]
 
 diffRegressions:
 	@echo "======================================================="

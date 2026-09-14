@@ -107,7 +107,7 @@ import           Data.String.Conversions
 import           System.Exit
 import           System.FilePath (dropExtension, takeBaseName)
 import           System.IO
-import           System.Process (readProcessWithExitCode, system)
+import           System.Process (rawSystem, readProcessWithExitCode)
 
 import           Language.Clafer.ClaferArgs hiding (Clafer)
 import qualified Language.Clafer.ClaferArgs  as Mode (ClaferMode (Clafer))
@@ -164,16 +164,17 @@ runCompiler    mURL         args'         inputModel =
 
         fs <- save args'
 
-        when (validate args') $ liftIO $ do
-            putStrLn $ "[clafer]              Validating " ++ file args'
-
-        when (validate args') $ liftIO $ do
-          oks <- forM fs (runValidate args')
-          putStrLn "\n"
-          let failed = length $ filter not oks
-          when (failed > 0) $ do
-            putStrLn $ "[clafer]              Validation failed for " ++ show failed ++ " output file(s)."
-            exitFailure
+        when (validate args') $ liftIO $
+          if console_output args'
+            then putStrLn "[clafer]              Validation skipped: console output (-o) writes no files to validate."
+            else do
+              putStrLn $ "[clafer]              Validating " ++ file args'
+              oks <- forM fs (runValidate args')
+              putStrLn "\n"
+              let failed = length $ filter not oks
+              when (failed > 0) $ do
+                putStrLn $ "[clafer]              Validation failed for " ++ show failed ++ " output file(s)."
+                exitFailure
     when (Html `elem` mode args') $
       htmlCatch result args' inputModel
     result `cth` handleErrs
@@ -295,22 +296,22 @@ runValidate args' fo = do
   let path = tooldir args' ++ "/"
   let modes = mode args'
   alloyOk <- if Alloy `elem` modes && ".als" `isSuffixOf` fo
-    then gateValidator "Alloy" $ validateAlloy path ++ fo
+    then gateValidator "Alloy" $ validateAlloy path fo
     else return True
   chocoOk <- if Choco `elem` modes && ".js" `isSuffixOf` fo
-    then gateValidator "Choco" $ validateChoco path ++ fo
+    then gateValidator "Choco" $ validateChoco path fo
     else return True
   when (Graph `elem` modes && ".dot" `isSuffixOf` fo) $ do
     liftIO $ putStrLn ("=========== Parsing+Generating   " ++ fo ++ " =============")
-    void $ system $ validateGraph ++ fo
+    void $ uncurry rawSystem $ validateGraph fo
   -- when (Mode.Clafer `elem` modes && ".des.cfr" `isSuffixOf` fo) $ do
   --   liftIO $ putStrLn ("=========== Parsing+Typechecking " ++ fo ++ " =============")
   --   liftIO $ putStrLn $ validateClafer path ++ fo'
   --   void $ system $  validateClafer path ++ fo'
   return $ alloyOk && chocoOk
   where
-  gateValidator name cmd = do
-    exitCode <- system cmd
+  gateValidator name (prog, argv) = do
+    exitCode <- rawSystem prog argv
     case exitCode of
       ExitSuccess      -> return True
       ExitFailure code -> do
@@ -318,14 +319,18 @@ runValidate args' fo = do
                    ++ fo ++ " (validator exit " ++ show code ++ ")"
         return False
 
-validateAlloy :: String -> String
-validateAlloy path = "java -Djava.awt.headless=true -jar \"" ++ path ++ "org.alloytools.alloy.dist-6.2.0.jar\" commands "
+-- | Validator invocations as (program, argument-list) pairs, run via
+-- rawSystem so file paths are never shell-tokenized -- a path
+-- containing spaces must not read as a model rejection (PR #23,
+-- HOARDE Codex Cycle 1).
+validateAlloy :: String -> String -> (String, [String])
+validateAlloy path fo = ("java", ["-Djava.awt.headless=true", "-jar", path ++ "org.alloytools.alloy.dist-6.2.0.jar", "commands", fo])
 
-validateChoco :: String -> String
-validateChoco path = "java -jar \"" ++ path ++ "chocosolver.jar\" -v --file "
+validateChoco :: String -> String -> (String, [String])
+validateChoco path fo = ("java", ["-jar", path ++ "chocosolver.jar", "-v", "--file", fo])
 
-validateGraph :: String
-validateGraph = "dot -Tsvg -O "
+validateGraph :: String -> (String, [String])
+validateGraph fo = ("dot", ["-Tsvg", "-O", fo])
 
 -- validateClafer :: String -> String
 -- validateClafer path = "\""  ++ path ++ "clafer\" -s -k -m=clafer "
