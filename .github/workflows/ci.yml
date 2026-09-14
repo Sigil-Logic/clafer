@@ -74,15 +74,26 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-${{ runner.arch }}-m2-chocosolver-
 
+      # graphviz is NOT preinstalled on ubuntu-latest, and the generation
+      # sweep needs it: clafer's self-contained HTML output pipes the
+      # graph through `dot -Tsvg` unguarded (src/Language/Clafer.hs,
+      # compile-time embedding -- distinct from the -v graph leg that
+      # Sigil-Logic/clafer#20 made advisory), so a missing dot crashes
+      # generation.  Installing it also keeps the committed .html.reg
+      # baselines (which embed dot SVG) reproducible.  The
+      # validateCliGating dot-absence probe manufactures its own empty
+      # PATH, so installing dot here does not weaken that probe.
+      - name: Install graphviz
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends graphviz
+
       # Environment evidence (SL-DOM-P04): the runner's preinstalled JDK
       # runs both validators and the Maven build (chocosolver targets
-      # Java 8 bytecode; Alloy 6.2.0 needs 17+), and dot is optional --
-      # the graph leg is advisory since Sigil-Logic/clafer#20.
+      # Java 8 bytecode; Alloy 6.2.0 needs 17+).
       - name: Tool versions
         run: |
           java -version
           mvn -version
-          if command -v dot >/dev/null 2>&1; then dot -V; else echo "dot not present (graph leg is advisory)"; fi
+          dot -V
 
       - name: Build
         run: stack build --test --no-run-tests
