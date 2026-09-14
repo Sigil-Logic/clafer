@@ -168,8 +168,12 @@ runCompiler    mURL         args'         inputModel =
             putStrLn $ "[clafer]              Validating " ++ file args'
 
         when (validate args') $ liftIO $ do
-          forM_ fs (runValidate args')
+          oks <- forM fs (runValidate args')
           putStrLn "\n"
+          let failed = length $ filter not oks
+          when (failed > 0) $ do
+            putStrLn $ "[clafer]              Validation failed for " ++ show failed ++ " output file(s)."
+            exitFailure
     when (Html `elem` mode args') $
       htmlCatch result args' inputModel
     result `cth` handleErrs
@@ -281,14 +285,21 @@ summary' graph stats ("<!-- # GRAPH /-->":xs) = graph:summary' graph stats xs
 summary' graph stats ("<!-- # CVLGRAPH /-->":xs) = graph:summary' graph stats xs
 summary' graph stats (x:xs) = x:summary' graph stats xs
 
-runValidate :: ClaferArgs -> String -> IO ()
+-- | Run the external validators over one saved output file.  The Alloy
+-- and Choco legs gate: a validator rejection yields False so the caller
+-- can propagate a non-zero process exit (Sigil-Logic/clafer#20).  The
+-- Graph (dot) leg stays advisory -- its failure usually means graphviz
+-- is absent, not that the model is invalid.
+runValidate :: ClaferArgs -> String -> IO Bool
 runValidate args' fo = do
   let path = tooldir args' ++ "/"
   let modes = mode args'
-  when (Alloy `elem` modes && ".als" `isSuffixOf` fo) $ do
-    void $ system $ validateAlloy path ++ fo
-  when (Choco `elem` modes && ".js" `isSuffixOf` fo) $ do
-    void $ system $ validateChoco path ++ fo
+  alloyOk <- if Alloy `elem` modes && ".als" `isSuffixOf` fo
+    then gateValidator "Alloy" $ validateAlloy path ++ fo
+    else return True
+  chocoOk <- if Choco `elem` modes && ".js" `isSuffixOf` fo
+    then gateValidator "Choco" $ validateChoco path ++ fo
+    else return True
   when (Graph `elem` modes && ".dot" `isSuffixOf` fo) $ do
     liftIO $ putStrLn ("=========== Parsing+Generating   " ++ fo ++ " =============")
     void $ system $ validateGraph ++ fo
@@ -296,6 +307,16 @@ runValidate args' fo = do
   --   liftIO $ putStrLn ("=========== Parsing+Typechecking " ++ fo ++ " =============")
   --   liftIO $ putStrLn $ validateClafer path ++ fo'
   --   void $ system $  validateClafer path ++ fo'
+  return $ alloyOk && chocoOk
+  where
+  gateValidator name cmd = do
+    exitCode <- system cmd
+    case exitCode of
+      ExitSuccess      -> return True
+      ExitFailure code -> do
+        putStrLn $ "[clafer]              " ++ name ++ " validation FAILED for "
+                   ++ fo ++ " (validator exit " ++ show code ++ ")"
+        return False
 
 validateAlloy :: String -> String
 validateAlloy path = "java -Djava.awt.headless=true -jar \"" ++ path ++ "org.alloytools.alloy.dist-6.2.0.jar\" commands "

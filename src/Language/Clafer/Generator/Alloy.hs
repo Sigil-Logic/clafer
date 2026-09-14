@@ -69,9 +69,7 @@ header :: GenEnv -> [Token]     -> Concat
 header    genEnv    otherTokens' = CString $ unlines
     [ "open util/integer"
     , genAlloyEscapes otherTokens' ++ "pred show {}"
-    , if (validate $ claferargs genEnv)
-      then ""
-      else "run show " ++ forScopes genEnv
+    , "run show " ++ forScopes genEnv
     , ""]
 
 genAlloyEscapes :: [Token]  -> String
