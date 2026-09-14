@@ -1,7 +1,15 @@
 # CI for the Sigil-Logic clafer fork (Sigil-Logic/clafer#7).
-# x86_64 Linux runners; stack-based build and full test suite.
-# Actions are pinned to full commit SHAs (Dependabot keeps them current);
-# only global stack/pantry data is cached, keyed on the dependency plan.
+# x86_64 Linux runners; the job runs the full gated `make test` chain
+# from the repo root (Sigil-Logic/clafer#21): pinned+SHA-256 Alloy
+# acquisition, chocosolver built from the pinned Sigil-Logic fork
+# commit (Sigil-Logic/clafer#13), stack build, the unmasked stack test
+# suite, then the exit-code-gated harness -- generation gate, Alloy and
+# Choco validation gates with strict exclusions, the CLI -v gating
+# probes, and the advisory diff legs (Sigil-Logic/clafer#16, #20).
+# Actions are pinned to full commit SHAs (Dependabot keeps them
+# current).  Caches: global stack/pantry data keyed on the dependency
+# plan (unchanged from #7), the built chocosolver jar keyed on its
+# pinned commit, and the Maven repository for the chocosolver build.
 name: CI
 
 on:
@@ -12,8 +20,12 @@ on:
 
 jobs:
   build-test:
-    name: Build and test (x86_64 Linux)
+    name: Build and gated test harness (x86_64 Linux)
     runs-on: ubuntu-latest
+    # The harness starts ~280 validator JVMs; a single hung validator
+    # (or a fully cold stack cache) should fail the run, not idle out
+    # the default 6-hour job limit.
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -32,8 +44,52 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-${{ runner.arch }}-stack-clafer-
 
+      # The built chocosolver jar is a deterministic function of the
+      # pinned fork commit, so the cache key is read from the Makefile's
+      # CHOCOSOLVER_COMMIT rather than hardcoded here (a pin bump then
+      # misses and rebuilds without touching this workflow).
+      - name: Read the chocosolver pin
+        id: choco-pin
+        run: |
+          commit=$(sed -n 's/^CHOCOSOLVER_COMMIT := //p' Makefile)
+          test -n "$commit" || { echo "::error::CHOCOSOLVER_COMMIT not found in Makefile"; exit 1; }
+          echo "commit=$commit" >> "$GITHUB_OUTPUT"
+
+      # No restore-keys: a jar built from any other commit must never
+      # satisfy this key.  verify-chocosolver re-checks the .commit
+      # stamp against the pin on every run regardless (Makefile).
+      - name: Cache chocosolver (jar built from the pinned fork commit)
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            chocosolver.jar
+            chocosolver.jar.commit
+          key: ${{ runner.os }}-${{ runner.arch }}-chocosolver-${{ steps.choco-pin.outputs.commit }}
+
+      - name: Cache Maven dependencies (chocosolver build)
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.m2/repository
+          key: ${{ runner.os }}-${{ runner.arch }}-m2-chocosolver-${{ steps.choco-pin.outputs.commit }}
+          restore-keys: |
+            ${{ runner.os }}-${{ runner.arch }}-m2-chocosolver-
+
+      # Environment evidence (SL-DOM-P04): the runner's preinstalled JDK
+      # runs both validators and the Maven build (chocosolver targets
+      # Java 8 bytecode; Alloy 6.2.0 needs 17+), and dot is optional --
+      # the graph leg is advisory since Sigil-Logic/clafer#20.
+      - name: Tool versions
+        run: |
+          java -version
+          mvn -version
+          if command -v dot >/dev/null 2>&1; then dot -V; else echo "dot not present (graph leg is advisory)"; fi
+
       - name: Build
         run: stack build --test --no-run-tests
 
-      - name: Test (full suite)
-        run: stack test
+      # Chains Alloy acquisition + verification, the chocosolver build
+      # (skipped on cache hit), stack test (unmasked), and the gated
+      # harness.  The stack build inside `make test` is a no-op after
+      # the Build step above.
+      - name: Test (full gated make test harness)
+        run: make test

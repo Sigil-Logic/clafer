@@ -362,7 +362,7 @@ make grammar
 
 # Continuous Integration
 
-The Sigil-Logic fork builds and tests on x86_64 Linux via GitHub Actions ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)): `stack build` and the full `stack test` suite on GHC 9.4.8 / LTS-21.25, with stack/pantry caching.  Introduced under [Sigil-Logic/clafer#7](https://github.com/Sigil-Logic/clafer/issues/7).
+The Sigil-Logic fork builds and tests on x86_64 Linux via GitHub Actions ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)): the full gated `make test` chain from the repo root -- pinned+SHA-256 Alloy acquisition, chocosolver built from the pinned Sigil-Logic fork commit ([Sigil-Logic/clafer#13](https://github.com/Sigil-Logic/clafer/issues/13)), `stack build` and the full `stack test` suite on GHC 9.4.8 / LTS-21.25, and the exit-code-gated harness ([Sigil-Logic/clafer#16](https://github.com/Sigil-Logic/clafer/issues/16), [#20](https://github.com/Sigil-Logic/clafer/issues/20)) -- with stack/pantry, chocosolver-jar, and Maven caching.  Introduced under [Sigil-Logic/clafer#7](https://github.com/Sigil-Logic/clafer/issues/7); harness wiring under [Sigil-Logic/clafer#21](https://github.com/Sigil-Logic/clafer/issues/21).
 
 # Need help?
 
