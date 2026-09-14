@@ -1,0 +1,19 @@
+# Choco-validation exclusions for the gated test harness
+# (Sigil-Logic/clafer#16; consumed by test/Makefile validateChocoOutput).
+#
+# Each entry names a generated file under test/positive/ that is
+# EXPECTED to be rejected by `java -jar chocosolver.jar -v --file`.
+# Every other generated .js is exit-code-gated; entries here are strict
+# expected failures: if chocosolver starts accepting one, or it stops
+# being generated, the harness fails with a [STALE] error and the entry
+# must be removed.
+#
+# mergeExpAndSetExpAlloy.js: the Choco generator silently drops
+# set-expression reference targets (`Alice ** Person`, `++`, `--`,
+# integer enumerations), emitting bare `c0_uid;` statements
+# (Generator/Choco.hs, genSuperRefConstraintAssertGoal fallthrough);
+# the model's asserts then joinRef the never-emitted onlyAlice /
+# exceptElla refs, and chocosolver rejects the file (TypeException:
+# Cannot join c0_onlyAlice . ref).  Generator bug tracked as
+# Sigil-Logic/clafer#18; fixing #18 must empty this list.
+mergeExpAndSetExpAlloy.js
