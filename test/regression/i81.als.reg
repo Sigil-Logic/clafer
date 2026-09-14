@@ -1,6 +1,6 @@
 open util/integer
 pred show {}
-
+run show for 1 but 0 c0_a
 
 fact { #c0_a = 0 }
 abstract sig c0_a

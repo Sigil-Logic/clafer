@@ -1,6 +1,6 @@
 open util/integer
 pred show {}
-
+run show for 1 but 4 c0_Hand, 2 c0_Hook, 2 c0_Person
 
 abstract sig c0_Person
 { r_c0_Hand : set c0_Hand

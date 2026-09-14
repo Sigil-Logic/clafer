@@ -50,6 +50,7 @@ pred total[rel: univ->univ->State, children: univ] {
 
 
 
+run show for 10
 pred show {}
 
 /* Clafer specifications (input dependent) */

@@ -1,6 +1,6 @@
 open util/integer
 pred show {}
-
+run show for 1
 
 one sig c0_Clafer1
 { r_c0_type : one c0_type }

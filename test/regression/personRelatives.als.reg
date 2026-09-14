@@ -1,6 +1,6 @@
 open util/integer
 pred show {}
-
+run show for 1 but 3 c0_Person, 3 c0_age, 9 c0_childs, 3 c0_divorced, 3 c0_maritalStatus, 3 c0_married, 3 c0_neverMarried, 6 c0_parents, 3 c0_spouse
 
 abstract sig c0_Person
 { r_c0_age : one c0_age

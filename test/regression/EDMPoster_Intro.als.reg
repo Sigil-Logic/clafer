@@ -1,6 +1,6 @@
 open util/integer
 pred show {}
-
+run show for 1 but 0 c0_AndroidDevice1, 0 c0_input, 4 c1_CPU, 0 c1_OLED, 0 c2_AMOLED, 4 c2_CPU, 0 c2_HSPA, 0 c2_LCD, 0 c2_touchscreen, 4 c3_CPU, 0 c3_GSM, 0 c3_keyboard, 0 c4_CPU, 4 c5_CPU, 0 c5_display, 2 c6_CPU
 
 one sig c0_ExamplePhone1
 { r_c0_display : one c0_display

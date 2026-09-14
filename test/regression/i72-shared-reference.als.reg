@@ -1,6 +1,6 @@
 open util/integer
 pred show {}
-
+run show for 1 but 2 c0_Person, 2 c0_WaitingLine, 4 c0_participants
 
 abstract sig c0_Person
 {}

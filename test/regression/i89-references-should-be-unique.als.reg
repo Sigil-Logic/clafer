@@ -1,6 +1,6 @@
 open util/integer
 pred show {}
-
+run show for 1 but 3 c0_multisetRefToA, 3 c0_setRefToA
 
 abstract sig c0_A
 {}

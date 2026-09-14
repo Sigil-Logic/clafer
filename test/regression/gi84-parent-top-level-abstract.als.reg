@@ -1,6 +1,6 @@
 open util/integer
 pred show {}
-
+run show for 1 but 2 c0_Feature
 
 abstract sig c0_FeatureModel
 {}

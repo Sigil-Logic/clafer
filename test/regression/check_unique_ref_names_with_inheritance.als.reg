@@ -1,6 +1,6 @@
 open util/integer
 pred show {}
-
+run show for 1
 
 abstract sig c0_date
 { c0_date_ref : one Int }

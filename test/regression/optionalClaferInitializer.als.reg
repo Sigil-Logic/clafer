@@ -1,6 +1,6 @@
 open util/integer
 pred show {}
-
+run show for 1
 
 lone sig c0_intVal
 { c0_intVal_ref : one Int }

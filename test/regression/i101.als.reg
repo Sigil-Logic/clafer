@@ -1,6 +1,6 @@
 open util/integer
 pred show {}
-
+run show for 1 but 2 c0_Path, 2 c0_isDir
 
 abstract sig c0_Path
 { r_c0_p : lone c0_p

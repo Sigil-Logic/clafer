@@ -1,6 +1,6 @@
 open util/integer
 pred show {}
-
+run show for 1
 
 abstract sig c0_Component
 { r_c0_link : lone c0_link }

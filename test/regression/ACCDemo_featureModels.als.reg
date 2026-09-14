@@ -1,6 +1,6 @@
 open util/integer
 pred show {}
-
+run show for 1
 
 abstract sig c0_Car
 { r_c0_ABS : lone c0_ABS

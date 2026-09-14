@@ -1,6 +1,6 @@
 open util/integer
 pred show {}
-
+run show for 1 but 0 c0_e
 
 one sig c0_a
 { r_c0_b : lone c0_b

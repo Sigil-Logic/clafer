@@ -1,6 +1,6 @@
 open util/integer
 pred show {}
-
+run show for 1 but 3 c0_backlight, 3 c0_switches
 
 abstract sig c0_car
 { r_c0_transmission : one c0_transmission

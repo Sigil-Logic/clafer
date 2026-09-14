@@ -1,6 +1,6 @@
 open util/integer
 pred show {}
-
+run show for 1 but 0 c0_ActionName, 4 c0_Attribute, 3 c0_CombiningAlgo, 4 c0_Effect, 0 c0_Element, 0 c0_ResourceName, 0 c0_Role, 0 c0_Value, 0 c0_attributes, 4 c0_value
 
 fact { #c0_Value = 0 }
 abstract sig c0_Value

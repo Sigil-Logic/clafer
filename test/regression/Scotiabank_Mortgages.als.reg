@@ -1,6 +1,6 @@
 open util/integer
 pred show {}
-
+run show for 1 but 0 c0_Currency, 0 c0_Mortgage, 2 c0_MortgageTerm, 0 c0_Percentage, 0 c0_amortization, 0 c0_balance, 0 c0_biweekly, 0 c0_closed, 0 c0_conventional, 0 c0_currentInterestRate, 0 c0_currentPayment, 0 c0_financingAvailable, 0 c0_fixedForTheFullTerm, 0 c0_insured, 0 c0_interestRate, 0 c0_kind, 0 c0_loanToValue, 0 c0_monthly, 0 c0_open, 0 c0_paymentFrequency, 0 c0_principalMortgageAmount, 0 c0_propertyValue, 0 c0_resetTogetherWithPaymentAmountEachTimeScotiabankPrimeRateChanges, 0 c0_semiMonthly, 0 c0_term, 0 c0_valueProposition, 0 c0_weekly
 
 fact { #c0_Currency = 0 }
 abstract sig c0_Currency

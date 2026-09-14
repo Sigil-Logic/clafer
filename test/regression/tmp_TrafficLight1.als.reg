@@ -50,6 +50,7 @@ pred total[rel: univ->univ->State, children: univ] {
 
 
 
+run show for 10 but 0 c0_TrafficLight_1, 0 c0_flashing, 0 c0_green, 0 c0_normal, 0 c0_off, 0 c0_on, 0 c0_red, 0 c0_yellow, 0 c0_yellow_off, 0 c0_yellow_on
 pred show {}
 
 /* Clafer specifications (input dependent) */

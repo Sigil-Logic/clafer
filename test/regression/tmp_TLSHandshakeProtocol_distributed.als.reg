@@ -50,6 +50,7 @@ pred total[rel: univ->univ->State, children: univ] {
 
 
 
+run show for 10 but 3 c0_Domain, 2 c0_Feature, 30 c0_HandshakeStatus, 16 c0_Message, 2 c0_Node, 40 c0_Port, 50 c0_ProtocolVersion, 20 c0_certificate, 100 c0_protocolversion, 20 c0_receive, 20 c0_send, 20 c0_signing
 pred show {}
 
 /* Clafer specifications (input dependent) */

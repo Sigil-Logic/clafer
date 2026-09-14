@@ -1,6 +1,6 @@
 open util/integer
 pred show {}
-
+run show for 1
 
 one sig c0_claferA
 { r_c0_claferB : one c0_claferB }

@@ -1,6 +1,6 @@
 open util/integer
 pred show {}
-
+run show for 1
 
 one sig c0_person
 { r_c0_haha : one c0_haha

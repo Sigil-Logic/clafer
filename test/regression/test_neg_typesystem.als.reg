@@ -1,6 +1,6 @@
 open util/integer
 pred show {}
-
+run show for 1 but 2 c0_Measurable, 2 c0_performance
 
 abstract sig c0_Measurable
 { r_c0_performance : one c0_performance }
