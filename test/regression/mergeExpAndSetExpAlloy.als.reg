@@ -1,6 +1,6 @@
 open util/integer
 pred show {}
-
+run show for 1 but 2 c0_Person, 2 c0_friend, 2 c0_likes
 
 one sig c0_numberOne
 { c0_numberOne_ref : one 1 }

@@ -1,6 +1,6 @@
 open util/integer
 pred show {}
-
+run show for 1 but 2 c0_A, 2 c0_a, 2 c0_x
 
 abstract sig c0_A
 { r_c0_x : lone c0_x }

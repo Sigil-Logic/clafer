@@ -1,6 +1,6 @@
 open util/integer
 pred show {}
-
+run show for 1
 
 one sig c0_A
 { r_c0_B : set c0_B }

@@ -1,6 +1,6 @@
 open util/integer
 pred show {}
-
+run show for 1 but 2 c0_Bluetooth, 2 c0_Bluetooth20, 2 c0_LTE, 2 c0_LiBattery1400, 2 c0_MobilePhone, 2 c1_Bluetooth, 2 c1_Bluetooth21, 2 c1_Bluetooth40, 2 c1_LiBattery1150, 2 c1_WiFi, 2 c2_Battery, 2 c2_Connectivity, 2 c2_GSM, 2 c2_USB
 
 one sig c0_AndroidPhone1
 { r_c0_Connectivity : one c0_Connectivity

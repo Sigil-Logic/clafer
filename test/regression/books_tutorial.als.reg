@@ -1,6 +1,6 @@
 open util/integer
 pred show {}
-
+run show for 1 but 2 c0_Author, 2 c0_Person, 2 c0_authors, 2 c0_books, 2 c0_dob, 2 c0_name, 2 c0_page
 
 abstract sig c0_Book
 { r_c0_title : one c0_title

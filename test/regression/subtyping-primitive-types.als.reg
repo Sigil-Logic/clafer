@@ -1,6 +1,6 @@
 open util/integer
 pred show {}
-
+run show for 1 but 2 c0_percent
 
 abstract sig c0_percent
 { c0_percent_ref : one Int }

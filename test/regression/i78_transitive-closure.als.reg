@@ -1,6 +1,6 @@
 open util/integer
 pred show {}
-
+run show for 1 but 3 c0_TimeLevel, 3 c0_Week1AggregatesTo, 3 c0_aggregatesTo
 
 abstract sig c0_TimeLevel
 { r_c0_aggregatesTo : lone c0_aggregatesTo }

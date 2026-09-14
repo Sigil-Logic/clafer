@@ -1,6 +1,6 @@
 open util/integer
 pred show {}
-
+run show for 1 but 3 c0_E1TEntities, 3 c0_Entity, 3 c0_type
 
 abstract sig c0_Entity
 { r_c0_type : one c0_type }

@@ -1,6 +1,6 @@
 open util/integer
 pred show {}
-
+run show for 1 but 3 c0_Component, 3 c0_energy
 
 abstract sig c0_Component
 { r_c0_energy : one c0_energy }

@@ -1,6 +1,6 @@
 open util/integer
 pred show {}
-
+run show for 1 but 5 c0_Course, 3 c0_Teacher, 5 c0_course, 15 c0_taughtBy, 3 c0_teacher, 15 c0_teaches, 15 c0_x
 
 abstract sig c0_Course
 { r_c0_taughtBy : set c0_taughtBy }

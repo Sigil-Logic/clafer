@@ -1,6 +1,6 @@
 open util/integer
 pred show {}
-
+run show for 1 but 2 c0_x, 2 c0_y
 
 fact { 2 <= #c0_x }
 sig c0_x

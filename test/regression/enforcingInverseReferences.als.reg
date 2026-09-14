@@ -1,6 +1,6 @@
 open util/integer
 pred show {}
-
+run show for 1 but 6 c0_A, 6 c0_Author, 5 c0_B, 5 c0_Book, 30 c0_author, 30 c0_book
 
 abstract sig c0_Book
 { r_c0_author : some c0_author }

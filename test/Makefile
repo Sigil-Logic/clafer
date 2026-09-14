@@ -1,17 +1,16 @@
 SUITE_DIR = positive
 REG_DIR = regression
-# -v stays in the generation flags for OUTPUT PARITY, not for its
-# advisory validation: the Alloy generator suppresses the 'run show'
-# scope command when -v is set (Generator/Alloy.hs, header), and the
-# committed test/regression/*.als.reg baselines are -v-shaped --
-# dropping -v makes every generated .als differ from its baseline at
-# the run-command line (found by Frank Zeyda on PR #19; the advisory
-# diffRegressions legs masked it).  Gating still happens exactly once,
-# in validateAlloyOutput / validateChocoOutput below
-# (Sigil-Logic/clafer#16); the -v validator chatter during generation
-# is redundant but tolerated for baseline parity until the generator
-# coupling is decoupled (decision pending on PR #19).
-CLAFER = ../clafer -s -v -k --tooldir=..
+# The generation flags are -v-free (Sigil-Logic/clafer#20): 'run show'
+# emission no longer depends on -v (decoupled in Generator/Alloy.hs and
+# Generator/AlloyLtl.hs, header), and the committed
+# test/regression/*.als.reg baselines carry the run command, so plain
+# generation reproduces them byte-for-byte.  Do NOT add -v back here:
+# since #20 a validator rejection makes clafer itself exit non-zero,
+# so a -v generation sweep would fail on the 42 excluded-by-name
+# temporal tmp_* models before the gated validation legs run.  Gating
+# happens exactly once, in validateAlloyOutput / validateChocoOutput
+# below (Sigil-Logic/clafer#16), with strict by-name exclusions.
+CLAFER = ../clafer -s -k --tooldir=..
 
 # Validators for the generated output (same invocations the compiler's
 # own -v flag uses; see runValidate in src/Language/Clafer.hs).
@@ -41,7 +40,7 @@ GEN_MANIFEST = .generate-models.list
 ALLOY_MANIFEST = .validate-alloy.list
 CHOCO_MANIFEST = .validate-choco.list
 
-.PHONY: test generateAlloyJSHTMLDot validateAlloyOutput validateChocoOutput diffRegressions reg newReg clean
+.PHONY: test generateAlloyJSHTMLDot validateAlloyOutput validateChocoOutput validateCliGating diffRegressions reg newReg clean
 
 UNAME := $(shell uname | tr "A-Z" "a-z")
 
@@ -76,6 +75,7 @@ test:
 	$(MAKE) generateAlloyJSHTMLDot
 	$(MAKE) validateAlloyOutput
 	$(MAKE) validateChocoOutput
+	$(MAKE) validateCliGating
 	$(MAKE) diffRegressions
 
 generateAlloyJSHTMLDot:
@@ -208,6 +208,44 @@ validateChocoOutput:
 		done; \
 		[ $$stale -eq 0 ] || { echo "$$stale stale exclusion(s) in $(CHOCO_EXCLUDES)."; false; }; \
 	}
+
+# CLI -v gating semantics (Sigil-Logic/clafer#20; regressions for the
+# PR #23 HOARDE Codex Cycle 1 findings): -v must propagate a validator
+# rejection as a non-zero clafer exit, stay exit 0 on accepted models,
+# skip cleanly under console output (-o, which writes no files to
+# validate), and must not misread a path containing spaces as a
+# rejection (validators are invoked with argument lists via rawSystem,
+# not shell-tokenized command strings).  A missing dot executable must
+# leave the graph leg advisory (exit 0 with a notice), and the target
+# itself must survive a checkout path containing spaces (quoted
+# CLI_CLAFER; PR #23 Codex Cycle 2).
+CLI_CLAFER = "$(CURDIR)/../clafer" -s -k "--tooldir=$(CURDIR)/.."
+
+validateCliGating:
+	@echo "=================================================================="
+	@echo "| Testing CLI -v gating semantics (Sigil-Logic/clafer#20)        |"
+	@echo "=================================================================="
+	@tmp=$$(mktemp -d); \
+	status=0; \
+	cp $(SUITE_DIR)/i23.cfr $(SUITE_DIR)/tmp_before01.cfr "$$tmp/"; \
+	mkdir "$$tmp/with space"; cp $(SUITE_DIR)/i23.cfr "$$tmp/with space/"; \
+	if ! (cd "$$tmp" && $(CLI_CLAFER) -v -m=alloy -m=choco i23.cfr >/dev/null 2>&1); then \
+		echo "[FAIL] accepted model: clafer -v must exit 0"; status=1; fi; \
+	if (cd "$$tmp" && $(CLI_CLAFER) -v -m=alloy tmp_before01.cfr >/dev/null 2>&1); then \
+		echo "[FAIL] rejected model: clafer -v must exit non-zero"; status=1; fi; \
+	if ! out=$$(cd "$$tmp" && $(CLI_CLAFER) -v -o -m=alloy i23.cfr 2>&1); then \
+		echo "[FAIL] console output: clafer -v -o must exit 0"; status=1; \
+	elif ! printf '%s\n' "$$out" | grep -q "Validation skipped"; then \
+		echo "[FAIL] console output: skip notice missing"; status=1; fi; \
+	if ! (cd "$$tmp" && $(CLI_CLAFER) -v -m=alloy -m=choco "with space/i23.cfr" >/dev/null 2>&1); then \
+		echo "[FAIL] path with spaces: accepted model must exit 0"; status=1; fi; \
+	if ! out=$$(cd "$$tmp" && env PATH=/nonexistent $(CLI_CLAFER) -v -m=graph i23.cfr 2>&1); then \
+		echo "[FAIL] missing dot: graph leg must stay advisory (exit 0)"; status=1; \
+	elif ! printf '%s\n' "$$out" | grep -q "advisory"; then \
+		echo "[FAIL] missing dot: advisory skip notice missing"; status=1; fi; \
+	rm -rf "$$tmp"; \
+	if [ $$status -eq 0 ]; then echo "CLI gating: 5 probes passed."; fi; \
+	[ $$status -eq 0 ]
 
 diffRegressions:
 	@echo "======================================================="

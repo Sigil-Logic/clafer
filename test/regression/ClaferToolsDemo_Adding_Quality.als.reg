@@ -1,6 +1,6 @@
 open util/integer
 pred show {}
-
+run show for 1 but 10 c0_Feature, 10 c0_batterylife, 10 c0_cost, 10 c0_productivity, 10 c0_security
 
 abstract sig c0_Feature
 { r_c0_productivity : one c0_productivity

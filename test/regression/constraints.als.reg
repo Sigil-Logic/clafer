@@ -1,6 +1,6 @@
 open util/integer
 pred show {}
-
+run show for 1 but 4 c0_Phone, 4 c0_agps, 4 c0_bluetooth, 4 c0_gps, 4 c0_gpu, 4 c0_location, 4 c0_mobile, 4 c0_networking, 4 c0_nfc, 4 c0_typeB, 4 c0_typeG, 4 c0_typeN, 4 c0_wifi
 
 abstract sig c0_Phone
 { r_c0_networking : one c0_networking

@@ -1,6 +1,6 @@
 open util/integer
 pred show {}
-
+run show for 1 but 3 c0_Exam, 5 c0_Person, 3 c0_date, 3 c0_examinee, 3 c0_examineeAda, 5 c0_examineeOfAdaAsExaminer, 5 c0_examineeOfAdaAsRecorder, 3 c0_examiner, 3 c0_examinerAda, 5 c0_examinerOfAdaAsExaminee, 5 c0_examinerOfAdaAsRecorder, 3 c0_recorder, 3 c0_recorderAda, 5 c0_recorderOfAdaAsExaminee, 5 c0_recorderOfAdaAsExaminer
 
 abstract sig c0_Person
 {}

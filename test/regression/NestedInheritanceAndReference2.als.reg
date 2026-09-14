@@ -1,6 +1,6 @@
 open util/integer
 pred show {}
-
+run show for 1 but 2 c0_Component, 2 c0_Port, 2 c0_TemperaturePort, 2 c0_input, 2 c0_output
 
 abstract sig c0_Component
 { r_c0_Port : set c0_Port

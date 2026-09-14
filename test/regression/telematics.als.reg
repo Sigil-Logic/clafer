@@ -1,6 +1,6 @@
 open util/integer
 pred show {}
-
+run show for 1 but 2 c0_ECU, 4 c0_cache, 6 c0_comp, 4 c0_display, 4 c0_fixed, 4 c0_large, 4 c0_options, 2 c0_plaECU, 4 c0_server, 4 c0_size, 4 c0_small, 6 c0_version, 4 c1_display, 4 c1_options, 4 c1_size
 
 abstract sig c0_options
 { r_c0_size : one c0_size

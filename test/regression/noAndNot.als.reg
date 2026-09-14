@@ -1,6 +1,6 @@
 open util/integer
 pred show {}
-
+run show for 1
 
 abstract sig c0_Person
 { r_c0_married : lone c0_married

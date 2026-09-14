@@ -1,6 +1,6 @@
 open util/integer
 pred show {}
-
+run show for 1 but 2 c0_Dimension, 2 c0_DimensionLevel, 2 c0_belongsTo, 4 c0_levels
 
 abstract sig c0_Dimension
 { r_c0_levels : set c0_levels }

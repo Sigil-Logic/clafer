@@ -1,6 +1,6 @@
 open util/integer
 pred show {}
-
+run show for 1 but 0 c0_Kernel, 0 c0_memory
 
 fact { #c0_Kernel = 0 }
 abstract sig c0_Kernel

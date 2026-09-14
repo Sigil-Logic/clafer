@@ -94,6 +94,7 @@ module Language.Clafer
   , module Language.Clafer.Front.ErrM
   ) where
 
+import           Control.Exception (IOException, try)
 import           Control.Lens.Plated
 import           Control.Monad
 import           Control.Monad.State
@@ -107,7 +108,7 @@ import           Data.String.Conversions
 import           System.Exit
 import           System.FilePath (dropExtension, takeBaseName)
 import           System.IO
-import           System.Process (readProcessWithExitCode, system)
+import           System.Process (rawSystem, readProcessWithExitCode)
 
 import           Language.Clafer.ClaferArgs hiding (Clafer)
 import qualified Language.Clafer.ClaferArgs  as Mode (ClaferMode (Clafer))
@@ -164,12 +165,17 @@ runCompiler    mURL         args'         inputModel =
 
         fs <- save args'
 
-        when (validate args') $ liftIO $ do
-            putStrLn $ "[clafer]              Validating " ++ file args'
-
-        when (validate args') $ liftIO $ do
-          forM_ fs (runValidate args')
-          putStrLn "\n"
+        when (validate args') $ liftIO $
+          if console_output args'
+            then putStrLn "[clafer]              Validation skipped: console output (-o) writes no files to validate."
+            else do
+              putStrLn $ "[clafer]              Validating " ++ file args'
+              oks <- forM fs (runValidate args')
+              putStrLn "\n"
+              let failed = length $ filter not oks
+              when (failed > 0) $ do
+                putStrLn $ "[clafer]              Validation failed for " ++ show failed ++ " output file(s)."
+                exitFailure
     when (Html `elem` mode args') $
       htmlCatch result args' inputModel
     result `cth` handleErrs
@@ -281,30 +287,58 @@ summary' graph stats ("<!-- # GRAPH /-->":xs) = graph:summary' graph stats xs
 summary' graph stats ("<!-- # CVLGRAPH /-->":xs) = graph:summary' graph stats xs
 summary' graph stats (x:xs) = x:summary' graph stats xs
 
-runValidate :: ClaferArgs -> String -> IO ()
+-- | Run the external validators over one saved output file.  The Alloy
+-- and Choco legs gate: a validator rejection yields False so the caller
+-- can propagate a non-zero process exit (Sigil-Logic/clafer#20).  The
+-- Graph (dot) leg stays advisory -- its failure usually means graphviz
+-- is absent, not that the model is invalid.
+runValidate :: ClaferArgs -> String -> IO Bool
 runValidate args' fo = do
   let path = tooldir args' ++ "/"
   let modes = mode args'
-  when (Alloy `elem` modes && ".als" `isSuffixOf` fo) $ do
-    void $ system $ validateAlloy path ++ fo
-  when (Choco `elem` modes && ".js" `isSuffixOf` fo) $ do
-    void $ system $ validateChoco path ++ fo
+  alloyOk <- if Alloy `elem` modes && ".als" `isSuffixOf` fo
+    then gateValidator "Alloy" $ validateAlloy path fo
+    else return True
+  chocoOk <- if Choco `elem` modes && ".js" `isSuffixOf` fo
+    then gateValidator "Choco" $ validateChoco path fo
+    else return True
   when (Graph `elem` modes && ".dot" `isSuffixOf` fo) $ do
     liftIO $ putStrLn ("=========== Parsing+Generating   " ++ fo ++ " =============")
-    void $ system $ validateGraph ++ fo
+    graphRun <- try (uncurry rawSystem $ validateGraph fo) :: IO (Either IOException ExitCode)
+    case graphRun of
+      Left err -> putStrLn $ "[clafer]              Graph rendering skipped (advisory): " ++ show err
+      Right _  -> return ()
   -- when (Mode.Clafer `elem` modes && ".des.cfr" `isSuffixOf` fo) $ do
   --   liftIO $ putStrLn ("=========== Parsing+Typechecking " ++ fo ++ " =============")
   --   liftIO $ putStrLn $ validateClafer path ++ fo'
   --   void $ system $  validateClafer path ++ fo'
+  return $ alloyOk && chocoOk
+  where
+  gateValidator name (prog, argv) = do
+    runResult <- try (rawSystem prog argv) :: IO (Either IOException ExitCode)
+    case runResult of
+      Right ExitSuccess        -> return True
+      Right (ExitFailure code) -> do
+        putStrLn $ "[clafer]              " ++ name ++ " validation FAILED for "
+                   ++ fo ++ " (validator exit " ++ show code ++ ")"
+        return False
+      Left err                 -> do
+        putStrLn $ "[clafer]              " ++ name ++ " validation FAILED for "
+                   ++ fo ++ " (validator could not be run: " ++ show err ++ ")"
+        return False
 
-validateAlloy :: String -> String
-validateAlloy path = "java -Djava.awt.headless=true -jar \"" ++ path ++ "org.alloytools.alloy.dist-6.2.0.jar\" commands "
+-- | Validator invocations as (program, argument-list) pairs, run via
+-- rawSystem so file paths are never shell-tokenized -- a path
+-- containing spaces must not read as a model rejection (PR #23,
+-- HOARDE Codex Cycle 1).
+validateAlloy :: String -> String -> (String, [String])
+validateAlloy path fo = ("java", ["-Djava.awt.headless=true", "-jar", path ++ "org.alloytools.alloy.dist-6.2.0.jar", "commands", fo])
 
-validateChoco :: String -> String
-validateChoco path = "java -jar \"" ++ path ++ "chocosolver.jar\" -v --file "
+validateChoco :: String -> String -> (String, [String])
+validateChoco path fo = ("java", ["-jar", path ++ "chocosolver.jar", "-v", "--file", fo])
 
-validateGraph :: String
-validateGraph = "dot -Tsvg -O "
+validateGraph :: String -> (String, [String])
+validateGraph fo = ("dot", ["-Tsvg", "-O", fo])
 
 -- validateClafer :: String -> String
 -- validateClafer path = "\""  ++ path ++ "clafer\" -s -k -m=clafer "

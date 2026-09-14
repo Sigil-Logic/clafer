@@ -1,6 +1,6 @@
 open util/integer
 pred show {}
-
+run show for 1 but 2 c0_d, 2 c0_e, 2 c0_f, 4 c0_g
 
 lone sig c0_a
 {}

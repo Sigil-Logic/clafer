@@ -90,8 +90,7 @@ header    genEnv   otherTokens' = CString $ unlines $ catMaybes
     [ (Alloy  `notElem` (mode args)) ?<> Just "open util/integer"
     , Just $ genAlloyEscapes otherTokens'
     , (AlloyLtl `elem` (mode args))    ?<> Just traceModuleSource
-    , (not (validate args)) ?<>
-      Just ("run show " ++ forScopes genEnv)
+    , Just ("run show " ++ forScopes genEnv)
     , Just "pred show {}"
     , Just ""
     , Just "/* Clafer specifications (input dependent) */"

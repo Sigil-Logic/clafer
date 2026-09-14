@@ -1,6 +1,6 @@
 open util/integer
 pred show {}
-
+run show for 1 but 3 c0_x, 3 c0_xs
 
 abstract sig c0_x
 { c0_x_ref : one Int }

@@ -50,6 +50,7 @@ pred total[rel: univ->univ->State, children: univ] {
 
 
 
+run show for 10 but 30 c0_TrafficLight_1, 0 c0_TrafficLight_2, 0 c0_TrafficLight_3, 0 c0_TrafficLight_H, 50 c0_event, 30 c0_flashing, 30 c0_green, 30 c0_normal, 30 c0_off, 30 c0_on, 30 c0_red, 30 c0_yellow, 30 c0_yellow_off, 30 c0_yellow_on, 0 c1_flashing, 0 c1_green, 0 c1_normal, 0 c1_off, 0 c1_on, 0 c1_red, 0 c1_yellow, 0 c1_yellow_off, 0 c1_yellow_on, 0 c2_flashing, 0 c2_green, 0 c2_normal, 0 c2_off, 0 c2_on, 0 c2_red, 0 c2_yellow, 0 c2_yellow_off, 0 c2_yellow_on, 0 c3_flashing, 0 c3_green, 0 c3_normal, 0 c3_off, 0 c3_on, 0 c3_red, 0 c3_yellow, 0 c3_yellow_off, 0 c3_yellow_on
 pred show {}
 
 /* Clafer specifications (input dependent) */

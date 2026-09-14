@@ -1,6 +1,6 @@
 open util/integer
 pred show {}
-
+run show for 1 but 5 c0_M, 4 c0_Meeting, 7 c0_Member, 2 c0_Month, 2 c0_Room, 2 c0_capacity, 2 c0_computer, 2 c0_electronic, 4 c0_mt, 28 c0_onlineParticipant, 28 c0_participant, 2 c0_projector, 2 c0_traditional, 2 c1_audioConferencing, 4 c2_chair, 4 c2_room, 2 c2_whiteboard
 
 one sig c0_midYearReview extends c0_Meeting
 { r_c0_month : one c0_month

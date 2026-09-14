@@ -1,6 +1,6 @@
 open util/integer
 pred show {}
-
+run show for 1 but 4 c0_Cartridge, 2 c0_Head, 4 c0_High, 4 c0_Low, 4 c0_Speed, 4 c0_Turbo, 4 c0_inkVolume
 
 one sig c0_Office
 { r_c0_Printer : lone c0_Printer
