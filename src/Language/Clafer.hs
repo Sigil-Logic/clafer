@@ -94,6 +94,7 @@ module Language.Clafer
   , module Language.Clafer.Front.ErrM
   ) where
 
+import           Control.Exception (IOException, try)
 import           Control.Lens.Plated
 import           Control.Monad
 import           Control.Monad.State
@@ -303,7 +304,10 @@ runValidate args' fo = do
     else return True
   when (Graph `elem` modes && ".dot" `isSuffixOf` fo) $ do
     liftIO $ putStrLn ("=========== Parsing+Generating   " ++ fo ++ " =============")
-    void $ uncurry rawSystem $ validateGraph fo
+    graphRun <- try (uncurry rawSystem $ validateGraph fo) :: IO (Either IOException ExitCode)
+    case graphRun of
+      Left err -> putStrLn $ "[clafer]              Graph rendering skipped (advisory): " ++ show err
+      Right _  -> return ()
   -- when (Mode.Clafer `elem` modes && ".des.cfr" `isSuffixOf` fo) $ do
   --   liftIO $ putStrLn ("=========== Parsing+Typechecking " ++ fo ++ " =============")
   --   liftIO $ putStrLn $ validateClafer path ++ fo'
@@ -311,12 +315,16 @@ runValidate args' fo = do
   return $ alloyOk && chocoOk
   where
   gateValidator name (prog, argv) = do
-    exitCode <- rawSystem prog argv
-    case exitCode of
-      ExitSuccess      -> return True
-      ExitFailure code -> do
+    runResult <- try (rawSystem prog argv) :: IO (Either IOException ExitCode)
+    case runResult of
+      Right ExitSuccess        -> return True
+      Right (ExitFailure code) -> do
         putStrLn $ "[clafer]              " ++ name ++ " validation FAILED for "
                    ++ fo ++ " (validator exit " ++ show code ++ ")"
+        return False
+      Left err                 -> do
+        putStrLn $ "[clafer]              " ++ name ++ " validation FAILED for "
+                   ++ fo ++ " (validator could not be run: " ++ show err ++ ")"
         return False
 
 -- | Validator invocations as (program, argument-list) pairs, run via

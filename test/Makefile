@@ -215,8 +215,11 @@ validateChocoOutput:
 # skip cleanly under console output (-o, which writes no files to
 # validate), and must not misread a path containing spaces as a
 # rejection (validators are invoked with argument lists via rawSystem,
-# not shell-tokenized command strings).
-CLI_CLAFER = $(CURDIR)/../clafer -s -k --tooldir=$(CURDIR)/..
+# not shell-tokenized command strings).  A missing dot executable must
+# leave the graph leg advisory (exit 0 with a notice), and the target
+# itself must survive a checkout path containing spaces (quoted
+# CLI_CLAFER; PR #23 Codex Cycle 2).
+CLI_CLAFER = "$(CURDIR)/../clafer" -s -k "--tooldir=$(CURDIR)/.."
 
 validateCliGating:
 	@echo "=================================================================="
@@ -236,8 +239,12 @@ validateCliGating:
 		echo "[FAIL] console output: skip notice missing"; status=1; fi; \
 	if ! (cd "$$tmp" && $(CLI_CLAFER) -v -m=alloy -m=choco "with space/i23.cfr" >/dev/null 2>&1); then \
 		echo "[FAIL] path with spaces: accepted model must exit 0"; status=1; fi; \
+	if ! out=$$(cd "$$tmp" && env PATH=/nonexistent $(CLI_CLAFER) -v -m=graph i23.cfr 2>&1); then \
+		echo "[FAIL] missing dot: graph leg must stay advisory (exit 0)"; status=1; \
+	elif ! printf '%s\n' "$$out" | grep -q "advisory"; then \
+		echo "[FAIL] missing dot: advisory skip notice missing"; status=1; fi; \
 	rm -rf "$$tmp"; \
-	if [ $$status -eq 0 ]; then echo "CLI gating: 4 probes passed."; fi; \
+	if [ $$status -eq 0 ]; then echo "CLI gating: 5 probes passed."; fi; \
 	[ $$status -eq 0 ]
 
 diffRegressions:
