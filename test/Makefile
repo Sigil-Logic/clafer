@@ -218,12 +218,16 @@ validateChocoOutput:
 # not shell-tokenized command strings).  A missing dot executable must
 # leave the graph leg advisory (exit 0 with a notice), and the target
 # itself must survive a checkout path containing spaces (quoted
-# CLI_CLAFER; PR #23 Codex Cycle 2).
+# CLI_CLAFER; PR #23 Codex Cycle 2).  The generation-side dot spawn --
+# the html graph embedding behind --add-graph -- is advisory the same
+# way (Sigil-Logic/clafer#25): a missing dot degrades generation to
+# output without the embedded diagram, keeps exit 0, and prints a
+# notice on stderr, rather than crashing the whole generation sweep.
 CLI_CLAFER = "$(CURDIR)/../clafer" -s -k "--tooldir=$(CURDIR)/.."
 
 validateCliGating:
 	@echo "=================================================================="
-	@echo "| Testing CLI -v gating semantics (Sigil-Logic/clafer#20)        |"
+	@echo "| Testing CLI gating semantics (Sigil-Logic/clafer#20, #25)      |"
 	@echo "=================================================================="
 	@tmp=$$(mktemp -d); \
 	status=0; \
@@ -243,8 +247,14 @@ validateCliGating:
 		echo "[FAIL] missing dot: graph leg must stay advisory (exit 0)"; status=1; \
 	elif ! printf '%s\n' "$$out" | grep -q "advisory"; then \
 		echo "[FAIL] missing dot: advisory skip notice missing"; status=1; fi; \
+	if ! out=$$(cd "$$tmp" && env PATH=/nonexistent $(CLI_CLAFER) -m=html -m=graph --self-contained --add-graph i23.cfr 2>&1); then \
+		echo "[FAIL] missing dot: html graph embedding must degrade (exit 0)"; status=1; \
+	elif ! printf '%s\n' "$$out" | grep -q "Graph embedding skipped"; then \
+		echo "[FAIL] missing dot: embedding skip notice missing"; status=1; \
+	elif [ ! -s "$$tmp/i23.html" ] || [ ! -s "$$tmp/i23.dot" ]; then \
+		echo "[FAIL] missing dot: degraded generation must still write outputs"; status=1; fi; \
 	rm -rf "$$tmp"; \
-	if [ $$status -eq 0 ]; then echo "CLI gating: 5 probes passed."; fi; \
+	if [ $$status -eq 0 ]; then echo "CLI gating: 6 probes passed."; fi; \
 	[ $$status -eq 0 ]
 
 diffRegressions:
