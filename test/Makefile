@@ -314,8 +314,12 @@ define DIFF_LEG
 	rm -f $(DIFF_GEN_MANIFEST) $(DIFF_GEN_MANIFEST).names $(DIFF_REG_MANIFEST) $(DIFF_REG_MANIFEST).names; false; \
 }
 @status=0; fails=0; compared=0; \
-only_gen=$$(comm -23 $(DIFF_GEN_MANIFEST).names $(DIFF_REG_MANIFEST).names); \
-only_reg=$$(comm -13 $(DIFF_GEN_MANIFEST).names $(DIFF_REG_MANIFEST).names); \
+if ! only_gen=$$(comm -23 $(DIFF_GEN_MANIFEST).names $(DIFF_REG_MANIFEST).names); then \
+	echo "[ERROR] comm failed comparing the .$(1) name lists"; status=1; \
+fi; \
+if ! only_reg=$$(comm -13 $(DIFF_GEN_MANIFEST).names $(DIFF_REG_MANIFEST).names); then \
+	echo "[ERROR] comm failed comparing the .$(1) name lists"; status=1; \
+fi; \
 if [ -n "$$only_gen" ]; then \
 	echo "[FAIL] Generated .$(1) file(s) with no $(REG_DIR)/ baseline (run 'make reg' if the new output is intended):"; \
 	printf '%s\n' "$$only_gen" | sed 's/^/    /'; status=1; \
@@ -343,14 +347,20 @@ endef
 # make test -- on PR #19 a corpus-wide .als drift sailed through a
 # green run and was caught only by eye.  Each leg now fails on any
 # divergence from the committed .reg corpus and on any counterpart
-# mismatch in either direction.  The 5 by-design decliner models
-# (reals, the product operator) exit 0 producing no output at all, so
-# they appear in neither the generated tree nor the .reg corpus: the
-# counterpart invariant relates those two trees, not the .cfr suite,
-# and the decliners are invisible to it (which is also why the
-# per-extension counts differ -- 157 .als / 117 .js / 162 .html /
-# 162 .dot at the time of writing).  For INTENDED output changes,
-# see the re-baselining workflow documented above the reg target.
+# mismatch in either direction.  Declining is backend-specific
+# (Sigil-Logic/clafer#16): a model using features a backend does not
+# support exits 0 producing no output file for that backend only.  At
+# the time of writing, Alloy declines 5 models (mergeExpAndSetExp,
+# objectivesMinMax, primitiveTypesAndCoersions, product, reals),
+# Choco declines 3 of those (all but objectivesMinMax and product)
+# and also emits no .js for the 42 temporal tmp_* models, and the
+# HTML and Graph backends decline none -- hence the per-extension
+# counts: 157 .als / 117 .js / 162 .html / 162 .dot.  A declined
+# model is absent from BOTH the generated tree and the .reg corpus of
+# its declining leg, so the counterpart invariant -- which relates
+# those two trees, not the .cfr suite -- needs no decliner carve-out.
+# For INTENDED output changes, see the re-baselining workflow
+# documented above the reg target.
 diffRegressions:
 	@echo "======================================================="
 	@echo "| Testing 'Positive' suite - Diffing with regressions |"
