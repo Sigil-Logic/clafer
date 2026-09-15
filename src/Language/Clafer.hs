@@ -235,13 +235,17 @@ save args'=
       result' <- if (add_graph args') && (Html `elem` (mode args') && ("dot" `isSuffixOf` (extension)))
             then do
                    ast' <- getAst
-                   -- The dot spawn is advisory, mirroring the -v graph leg in
-                   -- runValidate (Sigil-Logic/clafer#20): a missing graphviz
-                   -- degrades generation -- the output is saved without the
-                   -- embedded diagram and the exit code stays 0 -- instead of
-                   -- crashing it (Sigil-Logic/clafer#25).  The notice goes to
-                   -- stderr because with console output (-o) stdout carries
-                   -- the generated artifact itself.
+                   -- The dot embedding is advisory, mirroring the -v graph
+                   -- leg in runValidate (Sigil-Logic/clafer#20): any
+                   -- IOException raised anywhere in the dot transaction --
+                   -- spawning the process (the missing-graphviz case), writing
+                   -- the graph to its stdin, draining its output, or waiting
+                   -- on it -- degrades generation deliberately: the output is
+                   -- saved without the embedded diagram and the exit code
+                   -- stays 0, instead of crashing the whole generation sweep
+                   -- (Sigil-Logic/clafer#25).  The notice goes to stderr
+                   -- because with console output (-o) stdout carries the
+                   -- generated artifact itself.
                    graphRun <- liftIO (try (readProcessWithExitCode "dot" ["-Tsvg"] $ genSimpleGraph ast' iModule' (takeBaseName $ file args') (show_references args')) :: IO (Either IOException (ExitCode, String, String)))
                    case graphRun of
                      Right (_, graph, _) -> return $ summary graph result
