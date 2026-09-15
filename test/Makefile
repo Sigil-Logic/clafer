@@ -7,9 +7,11 @@ REG_DIR = regression
 # generation reproduces them byte-for-byte.  Do NOT add -v back here:
 # since #20 a validator rejection makes clafer itself exit non-zero,
 # so a -v generation sweep would fail on the 42 excluded-by-name
-# temporal tmp_* models before the gated validation legs run.  Gating
-# happens exactly once, in validateAlloyOutput / validateChocoOutput
-# below (Sigil-Logic/clafer#16), with strict by-name exclusions.
+# temporal tmp_* models before the gated validation legs run.
+# Validator gating happens exactly once, in validateAlloyOutput /
+# validateChocoOutput below (Sigil-Logic/clafer#16), with strict
+# by-name exclusions; baseline gating happens in diffRegressions
+# (Sigil-Logic/clafer#22).
 CLAFER = ../clafer -s -k --tooldir=..
 
 # Validators for the generated output (same invocations the compiler's
@@ -40,6 +42,13 @@ GEN_MANIFEST = .generate-models.list
 ALLOY_MANIFEST = .validate-alloy.list
 CHOCO_MANIFEST = .validate-choco.list
 
+# Gated-diff manifests (Sigil-Logic/clafer#22): the same manifest
+# pattern, one generated-tree/.reg-corpus pair reused by each of the
+# four diffRegressions legs in turn; the .names siblings hold the
+# prefix-stripped, re-sorted basenames the legs actually compare.
+DIFF_GEN_MANIFEST = .diff-generated.list
+DIFF_REG_MANIFEST = .diff-baselines.list
+
 .PHONY: test generateAlloyJSHTMLDot validateAlloyOutput validateChocoOutput validateCliGating diffRegressions reg newReg clean
 
 UNAME := $(shell uname | tr "A-Z" "a-z")
@@ -49,15 +58,19 @@ ifeq ($(UNAME), darwin)
     FIND_JS_COMMAND :=  find $(SUITE_DIR)  -type f \( -iname "*.js" \)   | sed s/$(SUITE_DIR)\\///
     FIND_HTML_COMMAND :=  find $(SUITE_DIR)  -type f \( -iname "*.html" \)   | sed s/$(SUITE_DIR)\\///
     FIND_DOT_COMMAND :=  find $(SUITE_DIR)  -type f \( -iname "*.dot" \)   | sed s/$(SUITE_DIR)\\///
-    XARGS_DIFF_COMMAND := xargs  -I % -L1 diff -w -B  $(SUITE_DIR)/% $(REG_DIR)/%.reg
 else
     FIND_ALS_COMMAND :=  find $(SUITE_DIR)  -type f \( -iname "*.als" \) -printf "%f\n"
     FIND_JS_COMMAND :=  find $(SUITE_DIR)  -type f \( -iname "*.js" \) -printf "%f\n"
     FIND_HTML_COMMAND :=  find $(SUITE_DIR)  -type f \( -iname "*.html" \) -printf "%f\n"
     FIND_DOT_COMMAND :=  find $(SUITE_DIR)  -type f \( -iname "*.dot" \) -printf "%f\n"
-    XARGS_DIFF_COMMAND := xargs  -i diff -w -B $(REG_DIR)/{}.reg $(SUITE_DIR)/{}
 endif
 
+# XARGS_DIFF_COMMAND is gone (Sigil-Logic/clafer#22): the darwin and
+# linux variants passed the diff operands in OPPOSITE orders (darwin:
+# generated file first; linux: baseline first), and the advisory xargs
+# pipeline they fed is replaced by the gated DIFF_LEG loop below --
+# one portable codepath, baseline first on both platforms.  The
+# FIND_*_COMMAND variables above remain in use by newReg.
 
 ifeq ($(UNAME), darwin)
     XARGS_CP_REGS :=  xargs  -t -I % -L1 cp  $(SUITE_DIR)/% $(REG_DIR)/%.reg
@@ -269,31 +282,115 @@ validateCliGating:
 	if [ $$status -eq 0 ]; then echo "CLI gating: 7 probes passed."; fi; \
 	[ $$status -eq 0 ]
 
+# One gated diff leg (Sigil-Logic/clafer#22): $(call DIFF_LEG,<ext>,<label>)
+# expands to the canned recipe for one output kind.  Discovery follows
+# the #16/#19 manifest pattern: find runs as the sole command of its
+# line so a failing producer fails the leg directly, the name lists
+# are re-sorted after prefix/suffix stripping (stripping .reg is not
+# order-preserving), and both lists are asserted non-empty.  The
+# generated tree and the .reg corpus are then compared BOTH ways with
+# comm -- a generated file with no baseline, or a baseline with no
+# generated counterpart, fails the leg rather than warning -- and
+# each surviving pair is diffed with the whitespace-insensitive flags
+# retained from the advisory era (diff -w -B).  Every divergence in a
+# leg is printed before the leg fails, so one run shows the leg's
+# full drift picture.
+define DIFF_LEG
+@echo "---------------------"
+@echo "| $(2) regressions |"
+@echo "---------------------"
+@find $(SUITE_DIR) -type f -iname '*.$(1)' > $(DIFF_GEN_MANIFEST)
+@sed 's|^$(SUITE_DIR)/||' $(DIFF_GEN_MANIFEST) > $(DIFF_GEN_MANIFEST).names
+@sort -o $(DIFF_GEN_MANIFEST).names $(DIFF_GEN_MANIFEST).names
+@test -s $(DIFF_GEN_MANIFEST).names || { \
+	echo "[ERROR] No generated .$(1) files found under $(SUITE_DIR)/ -- did generation run?"; \
+	rm -f $(DIFF_GEN_MANIFEST) $(DIFF_GEN_MANIFEST).names; false; \
+}
+@find $(REG_DIR) -type f -iname '*.$(1).reg' > $(DIFF_REG_MANIFEST)
+@sed -e 's|^$(REG_DIR)/||' -e 's|\.reg$$||' $(DIFF_REG_MANIFEST) > $(DIFF_REG_MANIFEST).names
+@sort -o $(DIFF_REG_MANIFEST).names $(DIFF_REG_MANIFEST).names
+@test -s $(DIFF_REG_MANIFEST).names || { \
+	echo "[ERROR] No .$(1).reg baselines found under $(REG_DIR)/."; \
+	rm -f $(DIFF_GEN_MANIFEST) $(DIFF_GEN_MANIFEST).names $(DIFF_REG_MANIFEST) $(DIFF_REG_MANIFEST).names; false; \
+}
+@status=0; fails=0; compared=0; \
+if ! only_gen=$$(comm -23 $(DIFF_GEN_MANIFEST).names $(DIFF_REG_MANIFEST).names); then \
+	echo "[ERROR] comm failed comparing the .$(1) name lists"; status=1; \
+fi; \
+if ! only_reg=$$(comm -13 $(DIFF_GEN_MANIFEST).names $(DIFF_REG_MANIFEST).names); then \
+	echo "[ERROR] comm failed comparing the .$(1) name lists"; status=1; \
+fi; \
+if [ -n "$$only_gen" ]; then \
+	echo "[FAIL] Generated .$(1) file(s) with no $(REG_DIR)/ baseline (run 'make reg' if the new output is intended):"; \
+	printf '%s\n' "$$only_gen" | sed 's/^/    /'; status=1; \
+fi; \
+if [ -n "$$only_reg" ]; then \
+	echo "[FAIL] .$(1).reg baseline(s) with no generated counterpart (stale corpus entry, or output lost):"; \
+	printf '%s\n' "$$only_reg" | sed 's/^/    /'; status=1; \
+fi; \
+while IFS= read -r name; do \
+	[ -f "$(REG_DIR)/$$name.reg" ] || continue; \
+	compared=$$((compared+1)); \
+	if ! out=$$(diff -w -B "$(REG_DIR)/$$name.reg" "$(SUITE_DIR)/$$name"); then \
+		echo "[FAIL] $$name diverges from $(REG_DIR)/$$name.reg:"; \
+		printf '%s\n' "$$out" | sed 's/^/    /'; \
+		fails=$$((fails+1)); \
+	fi; \
+done < $(DIFF_GEN_MANIFEST).names; \
+rm -f $(DIFF_GEN_MANIFEST) $(DIFF_GEN_MANIFEST).names $(DIFF_REG_MANIFEST) $(DIFF_REG_MANIFEST).names; \
+echo "$(2) regressions: $$compared compared, $$fails divergent."; \
+[ $$status -eq 0 ] && [ $$fails -eq 0 ]
+endef
+
+# Gated regression diff (Sigil-Logic/clafer#22): these four legs used
+# to end in '; true', so baseline drift was printed but never failed
+# make test -- on PR #19 a corpus-wide .als drift sailed through a
+# green run and was caught only by eye.  Each leg now fails on any
+# divergence from the committed .reg corpus and on any counterpart
+# mismatch in either direction.  Declining is backend-specific
+# (Sigil-Logic/clafer#16): a model using features a backend does not
+# support exits 0 producing no output file for that backend only.  At
+# the time of writing, Alloy declines 5 models (mergeExpAndSetExp,
+# objectivesMinMax, primitiveTypesAndCoersions, product, reals),
+# Choco declines 3 of those (all but objectivesMinMax and product)
+# and also emits no .js for the 42 temporal tmp_* models, and the
+# HTML and Graph backends decline none -- hence the per-extension
+# counts: 157 .als / 117 .js / 162 .html / 162 .dot.  A declined
+# model is absent from BOTH the generated tree and the .reg corpus of
+# its declining leg, so the counterpart invariant -- which relates
+# those two trees, not the .cfr suite -- needs no decliner carve-out.
+# For INTENDED output changes, see the re-baselining workflow
+# documented above the reg target.
 diffRegressions:
 	@echo "======================================================="
 	@echo "| Testing 'Positive' suite - Diffing with regressions |"
 	@echo "======================================================="
+	$(call DIFF_LEG,als,Alloy)
+	$(call DIFF_LEG,js,Choco)
+	$(call DIFF_LEG,html,HTML)
+	$(call DIFF_LEG,dot,Graph)
 
-	@echo "---------------------"
-	@echo "| Alloy regressions |"
-	@echo "---------------------"
-	@$(FIND_ALS_COMMAND) | $(XARGS_DIFF_COMMAND) ; true
-
-	@echo "---------------------"
-	@echo "| Choco regressions |"
-	@echo "---------------------"
-	@$(FIND_JS_COMMAND) | $(XARGS_DIFF_COMMAND) ; true
-
-	@echo "--------------------"
-	@echo "| HTML regressions |"
-	@echo "--------------------"
-	@$(FIND_HTML_COMMAND) | $(XARGS_DIFF_COMMAND) ; true
-
-	@echo "---------------------"
-	@echo "| Graph regressions |"
-	@echo "---------------------"
-	@$(FIND_DOT_COMMAND) | $(XARGS_DIFF_COMMAND) ; true
-
+# Re-baselining workflow for INTENDED output changes
+# (Sigil-Logic/clafer#22): diffRegressions gates on the committed
+# .reg corpus, so a change that legitimately alters generated output
+# must refresh the corpus in the same change set:
+#
+#   1. make test        -- fails in diffRegressions, printing the drift
+#   2. review every printed hunk: each must be explained by the change
+#      at hand (an unexplained hunk is a real regression, not a
+#      re-baselining candidate)
+#   3. make reg         -- wipes regression/*.reg, re-copies every
+#      generated file from positive/ as its new baseline, and stages
+#      the result (git add)
+#   4. make test        -- must now pass end to end
+#   5. commit the .reg deltas TOGETHER with the code change; the
+#      baseline diff is reviewed as part of the PR
+#
+# reg rebuilds the corpus from whatever is in positive/, so run it
+# only right after a full generation sweep over a clean tree (make
+# test runs clean + generateAlloyJSHTMLDot first); a partial tree
+# would silently shrink the corpus -- which the reverse counterpart
+# gate in DIFF_LEG then catches on the next run.
 reg:
 	@echo "============================"
 	@echo "| Creating new regressions |"
@@ -345,4 +442,6 @@ clean:
 	@echo 'Removing *~'
 	@find . -type f -name '*~' -print0 | xargs -0 rm -f
 	@echo 'Removing discovery manifests'
-	@rm -f $(GEN_MANIFEST) $(ALLOY_MANIFEST) $(CHOCO_MANIFEST)
+	@rm -f $(GEN_MANIFEST) $(ALLOY_MANIFEST) $(CHOCO_MANIFEST) \
+		$(DIFF_GEN_MANIFEST) $(DIFF_GEN_MANIFEST).names \
+		$(DIFF_REG_MANIFEST) $(DIFF_REG_MANIFEST).names
