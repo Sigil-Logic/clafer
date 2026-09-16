@@ -1,0 +1,14 @@
+open util/integer
+pred show {}
+run show for 1 but 0 c0_Target
+
+fact { #c0_Target = 0 }
+abstract sig c0_Target
+{}
+
+one sig c0_user
+{ r_c0_pick : one c0_pick }
+
+one sig c0_pick
+{ c0_pick_ref : one c0_Target }
+

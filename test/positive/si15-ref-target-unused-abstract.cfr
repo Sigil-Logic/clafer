@@ -1,0 +1,8 @@
+// Sigil-Logic/clafer#15: abstract used only as a reference target.
+// Under the default flags remUnusedAbs dropped Target while the
+// generators kept emitting `c0_pick_ref : one c0_Target`.
+
+abstract Target
+
+user
+    pick -> Target

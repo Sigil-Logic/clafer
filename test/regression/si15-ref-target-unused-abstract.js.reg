@@ -1,0 +1,9 @@
+scope({c0_Target:0});
+defaultScope(1);
+intRange(-8, 7);
+stringLength(16);
+
+c0_Target = Abstract("c0_Target");
+c0_user = Clafer("c0_user").withCard(1, 1);
+c0_pick = c0_user.addChild("c0_pick").withCard(1, 1);
+c0_pick.refToUnique(c0_Target);
