@@ -201,6 +201,12 @@ genCModule (imodule@IModule{_mDecls}, genv') scopes  otherTokens' =
         mapFunc op' ++ "(" ++ intercalate ", " (map genConstraintPExp args') ++ ")"
     -- this is a keyword in Javascript so use "$this" instead
     genConstraintExp IClaferId{_sident = "this"} = "$this()"
+    -- a locally bound identifier (a quantifier variable) is a local
+    -- whatever it is called: its name may coincide with a clafer UID
+    -- (`all c0_Target : Thing | ...`) without referring to that clafer,
+    -- and the name lookup below would then emit it as global
+    -- (Sigil-Logic/clafer PR #28, HOARDE Codex Cycle 1)
+    genConstraintExp IClaferId{_sident, _binding = LocalBind _} = _sident
     genConstraintExp IClaferId{_sident}
         | isJust $ findIClafer uidIClaferMap' _sident = "global(" ++ _sident ++ ")"
         | otherwise                = _sident

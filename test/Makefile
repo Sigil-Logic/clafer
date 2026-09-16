@@ -298,7 +298,9 @@ validateCliGating:
 # chocosolver -v exits 0 on a dangling name (it prints "Unhandled
 # compilation error ... ReferenceError" and carries on;
 # Sigil-Logic/chocosolver#8), so the Choco check gates on the output
-# text as well as the exit status until a fixed jar is re-pinned.
+# text as well as the exit status until a fixed jar is re-pinned.  The
+# scratch directory is removed by an EXIT/HUP/INT/TERM trap, so an
+# interrupted run leaks nothing (PR #28 HOARDE Codex Cycle 1).
 CLI_CLAFER_DEFAULT = "$(CURDIR)/../clafer" -s "--tooldir=$(CURDIR)/.."
 DEFAULT_FLAG_MODELS = i235.cfr gi84-parent-top-level-abstract.cfr \
 	si15-ref-target-unused-abstract.cfr \
@@ -314,7 +316,9 @@ validateDefaultFlagOutput:
 	@if test ! -f "$(CHOCOSOLVER_JAR)"; then \
 		echo "[ERROR] Missing $(CHOCOSOLVER_JAR)."; false; \
 	fi
-	@tmp=$$(mktemp -d); status=0; checked=0; \
+	@tmp=$$(mktemp -d) || { echo "[ERROR] mktemp -d failed"; exit 1; }; \
+	trap 'rm -rf "$$tmp"' EXIT HUP INT TERM; \
+	status=0; checked=0; \
 	for m in $(DEFAULT_FLAG_MODELS); do \
 		if ! cp "$(SUITE_DIR)/$$m" "$$tmp/"; then \
 			echo "[FAIL] $$m: missing from $(SUITE_DIR)/"; status=1; continue; fi; \
@@ -329,7 +333,6 @@ validateDefaultFlagOutput:
 			echo "[FAIL] chocosolver rejects the default-flag output of $$m:"; \
 			printf '%s\n' "$$out" | sed 's/^/    /'; status=1; fi; \
 	done; \
-	rm -rf "$$tmp"; \
 	echo "Default-flag validation: $$checked models checked, $$( [ $$status -eq 0 ] && echo all accepted || echo FAILURES )."; \
 	[ $$status -eq 0 ]
 

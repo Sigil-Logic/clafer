@@ -141,6 +141,26 @@ case_mention_inside_kept_abstract_retains_transitively = do
         (("abstract sig " ++ uid) `isInfixOf` alloyCode && ("fact { #" ++ uid ++ " = 0 }") `isInfixOf` alloyCode)
             @? ("a mention inside a kept abstract must retain " ++ uid ++ " with zero cardinality")
 
+case_local_name_colliding_with_uid_mentions_nothing :: Assertion
+case_local_name_colliding_with_uid_mentions_nothing = do
+    -- HOARDE Codex, PR #28 Cycle 1: a quantifier variable is bound
+    -- locally, so its name mentions no clafer even when it coincides
+    -- with a generated UID; the unextended, unmentioned Target must
+    -- still be dropped under the default flags.
+    let model = "abstract Target\n\nThing\n    [ all c0_Target : Thing | no c0_Target ]"
+    let alloyCode = si15_alloy defaultClaferArgs model
+    (not ("abstract sig c0_Target" `isInfixOf` alloyCode))
+        @? "a local name that coincides with a UID must not retain the abstract of that UID"
+    (("all  c0_Target : c0_Thing | no c0_Target" `isInfixOf` alloyCode)
+        @? "the quantified constraint must still be emitted unchanged")
+    -- the Choco generator classified identifiers as global by name
+    -- lookup alone, so the same local was emitted as global(c0_Target)
+    let compiled = compileOneFragment defaultClaferArgs{mode = [Alloy, Choco]} model
+    compiledCheck compiled @? "collision model failed to compile"
+    let chocoCode = outputCode $ fromJust $ Map.lookup Choco $ fromRight compiled
+    (("none(c0_Target)" `isInfixOf` chocoCode) && not ("global(c0_Target)" `isInfixOf` chocoCode))
+        @? "the Choco output must emit the locally bound c0_Target as a local, not global(c0_Target)"
+
 case_nonempty_cards :: Assertion
 case_nonempty_cards = do
     claferModels <- positiveClaferModels

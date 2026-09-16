@@ -140,10 +140,24 @@ partitionUnusedAbs decls' = partition ((`Set.member` retained) . _uid) unused
                         ++ [ (_uid c, _uid top) | top <- clafers, c <- universeOn biplate top ]
   -- the top-level clafers an element mentions anywhere in its subtree:
   -- supers, reference targets, and the identifiers in its constraints
-  -- and goals (a resolved identifier carries the UID as its sident;
-  -- local and special names map to no top-level clafer and drop out)
+  -- and goals (a resolved identifier carries the UID as its sident).
+  -- Only an identifier whose sident names a clafer of this module can
+  -- be a mention, and of those a locally bound one (a quantifier
+  -- variable) mentions nothing, whatever it is called -- its name may
+  -- coincide with a UID (`all c0_Target : Thing | ...`) without
+  -- referring to that clafer (HOARDE Codex, PR #28 Cycle 1); a
+  -- globally bound or unbound one (the --skip-resolver path) mentions
+  -- the clafer named.  The sident test comes first on purpose: it is
+  -- what lets special names (`parent`, `this`, `dref`, ...) drop out
+  -- WITHOUT forcing their binding, which the resolver leaves as a
+  -- lazily failing thunk for `parent` under a top-level clafer.
   mentions :: Data a => a -> [UID]
-  mentions x = mapMaybe (`Map.lookup` owner) [ s | IClaferId{_sident = s} <- universeOn biplate x ]
+  mentions x = mapMaybe (`Map.lookup` owner) $ concatMap mentionedUid (universeOn biplate x)
+  mentionedUid IClaferId{_sident = s, _binding = b}
+    | Map.member s owner = case b of
+        LocalBind _ -> []
+        _           -> [s]
+  mentionedUid _ = []
   seeds = [ _uid c | c <- clafers, not $ _isAbstract c ]
        ++ concat [ mentions e | e <- decls', not $ isClaferElement e ]
   isClaferElement (IEClafer _) = True
