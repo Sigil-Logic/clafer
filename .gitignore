@@ -21,3 +21,21 @@ chocosolver.jar
 chocosolver.jar.commit
 chocosolver-build.tmp/
 stack.yaml.lock
+
+# Generated outputs of the test harness (Sigil-Logic/clafer#22, PR #27
+# review): make -C test test compiles every test/positive/*.cfr to
+# Alloy, Choco, HTML, and Graph output next to its model; the
+# committed baselines live in test/regression/*.reg, and make -C test
+# clean removes the generated tree.
+test/positive/*.als
+test/positive/*.js
+test/positive/*.html
+test/positive/*.dot
+test/positive/*.dot.svg
+# Transient discovery manifests (normally removed by the recipes and
+# by make clean; they linger only after an interrupted run)
+test/.*.list
+test/.*.list.names
+# Harness-local copy of the compiler binary (test/Makefile invokes
+# ../clafer); build with stack and copy it here
+/clafer
