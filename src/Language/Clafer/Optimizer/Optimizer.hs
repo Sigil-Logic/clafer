@@ -22,6 +22,7 @@
 -}
 module Language.Clafer.Optimizer.Optimizer where
 
+import Data.Data (Data)
 import Data.Maybe
 import Data.List
 import Control.Applicative
@@ -29,6 +30,7 @@ import Control.Lens hiding (elements, children, un)
 import Control.Monad.State
 import Data.Data.Lens (biplate)
 import qualified Data.Map as Map
+import qualified Data.Set as Set
 import Prelude
 
 import Language.Clafer.Common
@@ -68,24 +70,94 @@ multExInt _  0 = 0
 multExInt m n = if m == -1 || n == -1 then -1 else m * n
 
 -- -----------------------------------------------------------------------------
+-- unused abstract clafers
+--
+-- A top-level abstract clafer is /unused/ when no top-level concrete
+-- clafer extends it, directly or through the supers of the nested clafers
+-- of everything reached that way ('findUnusedAbs'); no instance of it can
+-- exist.  Not every unused abstract can be dropped, though: the generators
+-- still emit a reference to it wherever the retained part of the module
+-- /mentions/ it -- as a reference target (`pick -> Target`) or in a
+-- constraint (`[ no Extra ]`) -- and dropping the declaration then
+-- leaves a dangling name that Alloy ('The name "c0_Target" cannot be
+-- found') and chocosolver ('ReferenceError: "c0_Target" is not defined')
+-- both reject (Sigil-Logic/clafer#15).  (A nested clafer's super is a
+-- mention too, but the refinement checker rejects a top-level clafer
+-- extending a nested abstract of a clafer it does not itself extend, so
+-- a super alone never reaches an unused abstract.)
+--
+-- 'partitionUnusedAbs' therefore splits the unused abstracts into the
+-- /mentioned/ ones, which every mode keeps with the (0, 0) cardinality
+-- that encodes "no instances" (`fact { #c0_Target = 0 }`, scope 0 --
+-- the treatment --keep-unused has always applied to every unused
+-- abstract), and the /unmentioned/ ones, which are the only ones
+-- 'remUnusedAbs' drops.  --keep-unused ('makeZeroUnusedAbs') still
+-- zeroes both.  Invariant: the default output differs from the
+-- --keep-unused output only by omitting the unmentioned abstracts, so it
+-- cannot dangle where the --keep-unused output does not.
 
 makeZeroUnusedAbs :: [IElement] -> [IElement]
-makeZeroUnusedAbs decls' = map (\x -> if (x `elem` unusedAbs) then IEClafer (getIClafer x){_card = Just (0, 0)} else x) decls'
+makeZeroUnusedAbs decls' = map (zeroUnusedAbs $ uidSet $ mentioned ++ unmentioned) decls'
   where
-  unusedAbs = map IEClafer $ findUnusedAbs clafers $ map _uid $
-              filter (not._isAbstract) clafers
-  clafers   = toClafers decls'
-  getIClafer (IEClafer c) = c
-  getIClafer _ = error "Function makeZeroUnusedAbs from Optimizer expected paramter of type IClafer got a differnt IElement" --This should never happen
+  (mentioned, unmentioned) = partitionUnusedAbs decls'
 
 remUnusedAbs :: [IElement] -> [IElement]
-remUnusedAbs decls' = decls' \\ unusedAbs
+remUnusedAbs decls' = map (zeroUnusedAbs $ uidSet mentioned) $ filter (not . isUnmentioned) decls'
   where
-  unusedAbs = map IEClafer $ findUnusedAbs clafers $ map _uid $
-              filter (not._isAbstract) clafers
-  clafers   = toClafers decls'
+  (mentioned, unmentioned) = partitionUnusedAbs decls'
+  unmentionedUids = uidSet unmentioned
+  isUnmentioned (IEClafer c) = _uid c `Set.member` unmentionedUids
+  isUnmentioned _            = False
 
+-- | Give a top-level abstract clafer from the set the (0, 0) cardinality
+-- that encodes "no instances"; leave every other element untouched.
+zeroUnusedAbs :: Set.Set UID -> IElement -> IElement
+zeroUnusedAbs unusedUids (IEClafer c)
+  | _uid c `Set.member` unusedUids = IEClafer c{_card = Just (0, 0)}
+zeroUnusedAbs _ x = x
 
+uidSet :: [IClafer] -> Set.Set UID
+uidSet = Set.fromList . map _uid
+
+-- | The unused top-level abstract clafers, split into those the retained
+-- part of the module mentions (to keep, with zero cardinality) and those
+-- it does not (droppable).  The retained part is the closure, under
+-- "mentions", of the top-level concrete clafers and the top-level
+-- constraints and goals -- everything the generators emit -- so a mention
+-- inside a dropped abstract retains nothing, while a mention inside a kept
+-- one retains, transitively.  A mention of a nested clafer counts as a
+-- mention of the top-level clafer containing it, since the top-level
+-- declaration is what carries the nested one into the output.
+partitionUnusedAbs :: [IElement] -> ([IClafer], [IClafer])
+partitionUnusedAbs decls' = partition ((`Set.member` retained) . _uid) unused
+  where
+  clafers = toClafers decls'
+  unused  = findUnusedAbs clafers $ map _uid $ filter (not . _isAbstract) clafers
+  byUid   = Map.fromList [ (_uid c, c) | c <- clafers ]
+  -- every clafer in a top-level clafer's subtree, itself included, maps
+  -- to that top-level clafer
+  owner   = Map.fromList $ [ (_uid top, _uid top) | top <- clafers ]
+                        ++ [ (_uid c, _uid top) | top <- clafers, c <- universeOn biplate top ]
+  -- the top-level clafers an element mentions anywhere in its subtree:
+  -- supers, reference targets, and the identifiers in its constraints
+  -- and goals (a resolved identifier carries the UID as its sident;
+  -- local and special names map to no top-level clafer and drop out)
+  mentions :: Data a => a -> [UID]
+  mentions x = mapMaybe (`Map.lookup` owner) [ s | IClaferId{_sident = s} <- universeOn biplate x ]
+  seeds = [ _uid c | c <- clafers, not $ _isAbstract c ]
+       ++ concat [ mentions e | e <- decls', not $ isClaferElement e ]
+  isClaferElement (IEClafer _) = True
+  isClaferElement _            = False
+  retained = close Set.empty seeds
+  close seen []     = seen
+  close seen (u:us)
+    | u `Set.member` seen = close seen us
+    | otherwise           = close (Set.insert u seen) $ maybe [] mentions (Map.lookup u byUid) ++ us
+
+-- | The top-level abstract clafers that none of the given (uids of)
+-- top-level concrete clafers extends, transitively through the supers of
+-- nested clafers.  This is the "no instances can exist" criterion; see
+-- 'partitionUnusedAbs' for which of these may actually be dropped.
 findUnusedAbs :: [IClafer] -> [String] -> [IClafer]
 findUnusedAbs maybeUsed [] = maybeUsed
 findUnusedAbs [] _   = []

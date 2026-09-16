@@ -76,6 +76,71 @@ case_parent_ref_skips_pruned_extenders = do
     (("~(none -> none)" `isInfixOf` alloyCode)
         @? "parent_ref_skips_pruned_extenders: expected the empty parent relation ~(none -> none) when no emitted nested extender exists")
 
+-- Sigil-Logic/clafer#15: under the default flags (keep_unused = False)
+-- remUnusedAbs dropped every top-level abstract no concrete clafer
+-- extends -- including those the retained module still mentions as a
+-- reference target or in a constraint -- while the generators kept
+-- emitting the mention, so the output dangled (`one c0_Target`,
+-- `no c0_Extra`; rejected by Alloy and chocosolver alike).  A mentioned
+-- unused abstract is now kept with the zero cardinality --keep-unused
+-- has always given every unused abstract, so for it the default output
+-- equals the --keep-unused output; an unmentioned one is still dropped,
+-- and a mention inside a dropped abstract retains nothing.
+
+si15_refTargetModel, si15_constraintMentionModel :: String
+si15_refTargetModel = "abstract Target\n\nuser\n    pick -> Target"
+si15_constraintMentionModel = "abstract Extra\n\nThing\n    [ no Extra ]"
+
+si15_alloy :: ClaferArgs -> String -> String
+si15_alloy args' model = outputCode $ fromJust $ Map.lookup Alloy $ fromRight $ compileOneFragment args' model
+
+case_mentioned_unused_abstract_is_kept_with_zero_card :: Assertion
+case_mentioned_unused_abstract_is_kept_with_zero_card =
+    forM_ [ ("reference target", si15_refTargetModel, "c0_Target")
+          , ("constraint mention", si15_constraintMentionModel, "c0_Extra") ] $ \(variant, model, uid) -> do
+        let compiled = compileOneFragment defaultClaferArgs model
+        compiledCheck compiled @? (variant ++ ": model failed to compile")
+        let alloyCode = outputCode $ fromJust $ Map.lookup Alloy $ fromRight compiled
+        (("abstract sig " ++ uid) `isInfixOf` alloyCode)
+            @? (variant ++ ": the mentioned abstract " ++ uid ++ " was dropped, leaving its mention dangling")
+        (("fact { #" ++ uid ++ " = 0 }") `isInfixOf` alloyCode)
+            @? (variant ++ ": the kept abstract " ++ uid ++ " must carry the zero cardinality (no instances)")
+
+case_mentioned_unused_abstract_default_equals_keep_unused :: Assertion
+case_mentioned_unused_abstract_default_equals_keep_unused =
+    forM_ [ ("reference target", si15_refTargetModel), ("constraint mention", si15_constraintMentionModel) ] $ \(variant, model) ->
+        (si15_alloy defaultClaferArgs model == si15_alloy defaultClaferArgs{keep_unused = True} model)
+            @? (variant ++ ": the default-flag Alloy output differs from the --keep-unused output")
+
+case_mentioned_unused_abstract_choco_defines_target :: Assertion
+case_mentioned_unused_abstract_choco_defines_target = do
+    let compiled = compileOneFragment defaultClaferArgs{mode = [Alloy, Choco]} si15_refTargetModel
+    compiledCheck compiled @? "reference target: model failed to compile"
+    let chocoCode = outputCode $ fromJust $ Map.lookup Choco $ fromRight compiled
+    ("c0_Target = Abstract(\"c0_Target\")" `isInfixOf` chocoCode)
+        @? "reference target: the Choco output refers to c0_Target without defining it"
+
+case_unmentioned_unused_abstract_is_still_dropped :: Assertion
+case_unmentioned_unused_abstract_is_still_dropped = do
+    let model = "abstract Unused\n\nThing"
+    (not ("c0_Unused" `isInfixOf` si15_alloy defaultClaferArgs model))
+        @? "an abstract nothing mentions must still be dropped under the default flags"
+    ("fact { #c0_Unused = 0 }" `isInfixOf` si15_alloy defaultClaferArgs{keep_unused = True} model)
+        @? "--keep-unused must still keep an unmentioned abstract with zero cardinality"
+
+case_mention_inside_dropped_abstract_retains_nothing :: Assertion
+case_mention_inside_dropped_abstract_retains_nothing = do
+    let alloyCode = si15_alloy defaultClaferArgs "abstract Outer\n    [ no Inner ]\n\nabstract Inner\n\nThing"
+    (not ("c0_Outer" `isInfixOf` alloyCode) && not ("c0_Inner" `isInfixOf` alloyCode))
+        @? "a mention inside a dropped abstract must not retain the mentioned abstract"
+
+case_mention_inside_kept_abstract_retains_transitively :: Assertion
+case_mention_inside_kept_abstract_retains_transitively = do
+    let alloyCode = si15_alloy defaultClaferArgs "abstract Outer\n    [ no Inner ]\n\nabstract Inner\n\nThing\n    pick -> Outer"
+    forM_ ["c0_Outer", "c0_Inner"] $ \uid ->
+        (("abstract sig " ++ uid) `isInfixOf` alloyCode && ("fact { #" ++ uid ++ " = 0 }") `isInfixOf` alloyCode)
+            @? ("a mention inside a kept abstract must retain " ++ uid ++ " with zero cardinality")
+
 case_nonempty_cards :: Assertion
 case_nonempty_cards = do
     claferModels <- positiveClaferModels
