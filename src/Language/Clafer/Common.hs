@@ -106,8 +106,10 @@ isNumericLiteral _         = False
 -- one node at a time: @(-1)@ parses as 'IFunExp' @"-"@ over 'IInt' @1@,
 -- which becomes 'IInt' @(-1)@; any other expression is returned unchanged.
 -- Shared by every consumer of a reference target -- 'getRefIds', the Alloy
--- declaration renderer, and the Choco classifier and constraint printer --
--- so they agree on the literal (Sigil-Logic/clafer#31).
+-- declaration renderers (static, "Language.Clafer.Generator.Alloy", and
+-- temporal, "Language.Clafer.Generator.AlloyLtl"), and the Choco classifier
+-- and constraint printer -- so they agree on the literal
+-- (Sigil-Logic/clafer#31).
 negateLiteral :: PExp -> PExp
 negateLiteral pexp'@PExp{_exp = IFunExp{_op = "-", _exps = [PExp{_exp = operand}]}} = case operand of
   IInt    k -> pexp'{_exp = IInt    (negate k)}

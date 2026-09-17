@@ -581,3 +581,18 @@ case_si31_negative_real_literal_ref_target_declines_instead_of_crashing = do
     case Map.lookup Html results of
         Just CompilerResult{} -> return ()
         other -> assertFailure ("Html: expected output for `d -> (-1.5)`, got " ++ show other)
+
+-- The temporal Alloy generator has its own reference-declaration renderer
+-- (`AlloyLtl.refType`; HOARDE Codex, PR #35 Cycle 1): a model with a temporal
+-- modifier or operator routes `-m alloy` through it, so it must fold the
+-- literal the same way as the static generator.
+case_si31_temporal_alloy_declares_the_negative_literal_bare :: Assertion
+case_si31_temporal_alloy_declares_the_negative_literal_bare =
+    forM_ [ ("final modifier", "final marker\nx -> (-1)\n", "{ c0_x_ref : -1 -> State }")
+          , ("initially constraint", "x -> (-1)\n[ initially x = -1 ]\n", "{ c0_x_ref : -1 -> State }")
+          , ("double negation", "final marker\nx -> (-(-1))\n", "{ c0_x_ref : 1 -> State }")
+          ] $ \(variant, model, expected) -> do
+        let alloyLtlCode = outputCode $ fromJust $ Map.lookup Alloy $ si31_results [Alloy] model
+        si29_assertContains variant expected alloyLtlCode
+        (not $ "_ref : -1.mul[" `isInfixOf` alloyLtlCode)
+            @? (variant ++ ": the declaration must not use the unary-minus rendering:\n" ++ alloyLtlCode)
