@@ -495,3 +495,104 @@ case_si29_dotted_super_errors_are_specific =
         case compileOneFragment defaultClaferArgs model of
             Left errors -> (expected `isInfixOf` show errors) @? (variant ++ ": expected `" ++ expected ++ "` in:\n" ++ show errors)
             Right _     -> assertFailure (variant ++ ": the model is not expected to compile")
+
+-- Sigil-Logic/clafer#31: a parenthesized negative literal as a reference
+-- target.  `x -> (-1)` -- the unspaced `-> -1` is a syntax error -- is unary
+-- minus over the literal in the IR, which Common.getRefIds had no case for,
+-- so every output mode crashed before any backend ran.  The literal now
+-- folds to `IInt (-1)` at every consumer of a reference target: getRefIds,
+-- the Alloy declaration renderer (Alloy 6.2.0 rejects the general
+-- `-1.mul[1]` rendering of unary minus in a declaration but accepts the bare
+-- literal, which binds tighter than the set operators), and the Choco
+-- classifier (`constant(-1)` on top of the #18 encoding).  Facts are not
+-- folded, so the constraint rendering of unary minus is unchanged.
+
+si31_results :: [ClaferMode] -> String -> Map.Map ClaferMode CompilerResult
+si31_results modes model = fromRight $ compileOneFragment defaultClaferArgs{mode = modes} model
+
+si31_alloy, si31_choco :: String -> String
+si31_alloy model = outputCode $ fromJust $ Map.lookup Alloy $ si31_results [Alloy, Choco] model
+si31_choco model = outputCode $ fromJust $ Map.lookup Choco $ si31_results [Alloy, Choco] model
+
+si31_reproducer :: String
+si31_reproducer = "x -> (-1)\nassert [ x = -1 ]\n"
+
+case_si31_negative_literal_ref_target_compiles_in_every_mode :: Assertion
+case_si31_negative_literal_ref_target_compiles_in_every_mode =
+    forM_ [Alloy, Choco, Html, Graph, CVLGraph, JSON] $ \m ->
+        case Map.lookup m (si31_results [m] si31_reproducer) of
+            Just CompilerResult{} -> return ()
+            other -> assertFailure (show m ++ ": expected output for `x -> (-1)`, got " ++ show other)
+
+case_si31_alloy_declares_the_negative_literal_bare :: Assertion
+case_si31_alloy_declares_the_negative_literal_bare = do
+    let alloyCode = si31_alloy si31_reproducer
+    si29_assertContains "declaration" "{ c0_x_ref : one -1 }" alloyCode
+    -- the fact keeps the general rendering of unary minus (the corpus is byte-identical)
+    si29_assertContains "fact" "assert assertOnLine_2 { (c0_x.@c0_x_ref) = (-1.mul[1]) }" alloyCode
+
+-- Alloy 6.2.0 binds a bare negative literal tighter than the set operators
+-- (`one -1 + 1` is {-1, 1}, `one 2 - -1` is {2}, `one -1 - -1` is empty;
+-- checked with the 6.2.0 jar), so the folded literal needs no brackets
+-- inside a set expression.
+case_si31_alloy_folds_negative_literals_inside_set_expressions :: Assertion
+case_si31_alloy_folds_negative_literals_inside_set_expressions =
+    forM_ [ ("union", "s -> (-1) ++ 1\n", "{ c0_s_ref : one -1 + 1 }")
+          , ("enumeration", "s -> (-1), 2\n", "{ c0_s_ref : one -1 + 2 }")
+          , ("difference", "s -> 2 -- (-1)\n", "{ c0_s_ref : one 2 - -1 }")
+          , ("intersection", "s -> (-1) ** integer\n", "{ c0_s_ref : one -1 & Int }")
+          , ("nested", "s -> ((-1) ++ 1) -- 1\n", "{ c0_s_ref : one (-1 + 1) - 1 }")
+          , ("double negation", "s -> (-(-1))\n", "{ c0_s_ref : one 1 }")
+          , ("bag", "s ->> (-1) 2\n", "{ c0_s_ref : one -1 }")
+          ] $ \(variant, decl, expected) -> si29_assertContains variant expected (si31_alloy decl)
+
+case_si31_choco_emits_the_negative_literal_constant :: Assertion
+case_si31_choco_emits_the_negative_literal_constant = do
+    si18_assertEncoding "reproducer" si31_reproducer
+        "c0_x.refToUnique(Int);\nc0_x.addConstraint($in(joinRef($this()), constant(-1)));\n"
+    si29_assertContains "assertion" "assert(equal(joinRef(global(c0_x)), constant(-1)));" (si31_choco si31_reproducer)
+    forM_ [ ("union", "s -> (-1) ++ 1\n",
+             "c0_s.refToUnique(Int);\nc0_s.addConstraint($in(joinRef($this()), union(constant(-1), constant(1))));\n")
+          , ("complement", "s -> integer -- (-1)\n",
+             "c0_s.refToUnique(Int);\nc0_s.addConstraint(notIn(joinRef($this()), constant(-1)));\n")
+          , ("difference", "s -> 2 -- (-1)\n",
+             "c0_s.refToUnique(Int);\nc0_s.addConstraint($in(joinRef($this()), diff(constant(2), constant(-1))));\n")
+          , ("double negation", "s -> (-(-1))\n",
+             "c0_s.refToUnique(Int);\nc0_s.addConstraint($in(joinRef($this()), constant(1)));\n")
+          , ("bag", "s ->> (-1) 2\n",
+             "c0_s.refTo(Int);\nc0_s.addConstraint($in(joinRef($this()), constant(-1)));\n")
+          ] $ \(variant, decl, expected) -> si18_assertEncoding variant decl expected
+
+case_si31_double_negation_equals_the_plain_literal :: Assertion
+case_si31_double_negation_equals_the_plain_literal = do
+    (si31_alloy "s -> (-(-1))\n" == si31_alloy "s -> 1\n") @? "Alloy: `s -> (-(-1))` must compile as `s -> 1`"
+    (si31_choco "s -> (-(-1))\n" == si31_choco "s -> 1\n") @? "Choco: `s -> (-(-1))` must compile as `s -> 1`"
+
+-- A negative real literal folds the same way, so the reference is classified
+-- as a reference to a real and both backends decline through the existing
+-- unsupported-feature path instead of crashing.
+case_si31_negative_real_literal_ref_target_declines_instead_of_crashing :: Assertion
+case_si31_negative_real_literal_ref_target_declines_instead_of_crashing = do
+    let results = si31_results [Alloy, Choco, Html] "d -> (-1.5)\n"
+    forM_ [Alloy, Choco] $ \m -> case Map.lookup m results of
+        Just NoCompilerResult{reason = why} -> ("a reference to a real" `isInfixOf` why)
+            @? (show m ++ ": the decline reason must name the reference to a real, got: " ++ why)
+        other -> assertFailure (show m ++ ": a reference to a negative real literal must decline, got: " ++ show other)
+    case Map.lookup Html results of
+        Just CompilerResult{} -> return ()
+        other -> assertFailure ("Html: expected output for `d -> (-1.5)`, got " ++ show other)
+
+-- The temporal Alloy generator has its own reference-declaration renderer
+-- (`AlloyLtl.refType`; HOARDE Codex, PR #35 Cycle 1): a model with a temporal
+-- modifier or operator routes `-m alloy` through it, so it must fold the
+-- literal the same way as the static generator.
+case_si31_temporal_alloy_declares_the_negative_literal_bare :: Assertion
+case_si31_temporal_alloy_declares_the_negative_literal_bare =
+    forM_ [ ("final modifier", "final marker\nx -> (-1)\n", "{ c0_x_ref : -1 -> State }")
+          , ("initially constraint", "x -> (-1)\n[ initially x = -1 ]\n", "{ c0_x_ref : -1 -> State }")
+          , ("double negation", "final marker\nx -> (-(-1))\n", "{ c0_x_ref : 1 -> State }")
+          ] $ \(variant, model, expected) -> do
+        let alloyLtlCode = outputCode $ fromJust $ Map.lookup Alloy $ si31_results [Alloy] model
+        si29_assertContains variant expected alloyLtlCode
+        (not $ "_ref : -1.mul[" `isInfixOf` alloyLtlCode)
+            @? (variant ++ ": the declaration must not use the unary-minus rendering:\n" ++ alloyLtlCode)

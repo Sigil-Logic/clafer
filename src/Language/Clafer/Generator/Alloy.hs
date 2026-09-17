@@ -198,8 +198,17 @@ genRel name c rType = genAlloyRel name (genCardCrude $ _card c) rType'
 genAlloyRel :: String -> String -> String -> String
 genAlloyRel name card' rType = concat [name, " : ", card', " ", rType]
 
+-- | The type of a reference in declaration position.  A negative literal in
+-- the target (`x -> (-1)`, Sigil-Logic/clafer#31) is folded to the literal
+-- first: the expression printer renders unary minus through 'transformExp'
+-- as `-1.mul[e]`, which Alloy 6.2.0 accepts inside a fact but rejects in a
+-- declaration, whereas the bare literal `-1` is accepted there and binds
+-- tighter than the set operators (`one -1 + 1` is the set {-1, 1}, `one 2 -
+-- -1` is {2}; verified against 6.2.0), so it needs no brackets inside a set
+-- expression either.  Facts are not folded: the constraint rendering of unary
+-- minus is unchanged.
 refType :: GenEnv -> IClafer -> Concat
-refType    genEnv c = fromMaybe (CString "") (((genType genEnv).getTarget) <$> (_ref <$> _reference c))
+refType    genEnv c = fromMaybe (CString "") (((genType genEnv) . foldNegativeLiterals . getTarget) <$> (_ref <$> _reference c))
 
 
 getTarget :: PExp -> PExp

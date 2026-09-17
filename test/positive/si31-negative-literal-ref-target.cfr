@@ -1,0 +1,20 @@
+// Sigil-Logic/clafer#31: a parenthesized negative integer literal as a
+// reference target.  `neg -> (-1)` is unary minus over the literal in the
+// IR (the grammar has no negative literals, and the unspaced `-> -1` is a
+// syntax error); Common.getRefIds had no case for it, so every output mode
+// crashed before any backend ran.  The literal now folds to -1 wherever a
+// reference target is consumed: Alloy declares `one -1` (bare -- 6.2.0
+// accepts it in declaration position and binds it tighter than the set
+// operators), Choco emits `constant(-1)` on top of the #18 encoding, and
+// facts keep the general rendering of unary minus.  The assertions hold
+// only if the literal survives the fold with its sign, so the gated Choco
+// leg guards the encoding end to end; the emission itself is baselined in
+// the .als.reg and .js.reg.
+
+neg -> (-1)
+assert [ neg = -1 ]
+
+// inside a set expression: the literal folds in place, then the set
+// operators render around it
+negOrOne -> (-1) ++ 1
+assert [ negOrOne = -1 || negOrOne = 1 ]
