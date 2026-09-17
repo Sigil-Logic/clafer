@@ -83,9 +83,12 @@ isPlainRefTarget _ = False
 -- | Classifies a reference target that is not plain, given a renderer
 -- for its clafer-typed sub-expressions (the generator's constraint
 -- printer; the support check passes a dummy).  Left carries the reason
--- the Choco backend cannot express the target.
+-- the Choco backend cannot express the target.  Negative literals are
+-- folded first (`x -> (-1)` is unary minus over the literal in the IR,
+-- Sigil-Logic/clafer#31), so they take the literal case below and emit
+-- `constant(-1)` -- the same fold the constraint printer applies.
 classifyRefTarget :: (PExp -> String) -> PExp -> Either String RefTargetSet
-classifyRefTarget render = go
+classifyRefTarget render = go . foldNegativeLiterals
   where
     go p@PExp{_exp = IClaferId{_sident}}
       | _sident `elem` [integerType, intType] = Right $ IntSet IntUniverse
@@ -348,11 +351,12 @@ genCModule (imodule@IModule{_mDecls}, genv') scopes  otherTokens' =
         p1{_exp = IFunExp "." [p3{_iType = _iType p4, _exp = IFunExp "." [p2, p4]}, p5]}
         where
             PExp{_exp = IFunExp "." [p4, p5]} = rewrite p3
-    rewrite p1@PExp{_exp = IFunExp{_op = "-", _exps = [PExp{_exp = IInt i}]}} =
-        -- This is so that the output looks cleaner, no other purpose since the Choco optimizer
-        -- in the backend will treat the pre-rewritten expression the same.
-        p1{_exp = IInt (-i)}
-    rewrite p = p
+    -- Fold unary minus over a literal into the literal (Common.negateLiteral,
+    -- shared with the reference-target classifier, Sigil-Logic/clafer#31).
+    -- This is so that the output looks cleaner, no other purpose since the
+    -- Choco optimizer in the backend will treat the pre-rewritten expression
+    -- the same.
+    rewrite p = negateLiteral p
 
     genConstraintPExp :: PExp -> String
     genConstraintPExp = genConstraintExp . _exp . rewrite

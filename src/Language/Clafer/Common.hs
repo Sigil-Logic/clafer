@@ -23,9 +23,9 @@
 module Language.Clafer.Common where
 
 import           Control.Applicative
-import           Control.Lens (universeOn)
+import           Control.Lens (transformOf, universeOn)
 import           Data.Char
-import           Data.Data.Lens (biplate)
+import           Data.Data.Lens (biplate, uniplate)
 import           Data.List
 import qualified Data.Map as Map
 import           Data.Maybe
@@ -86,7 +86,41 @@ getRefIds (PExp _ _ _ (IDouble _)) = [doubleType]
 getRefIds (PExp _ _ _ (IReal _)) = [realType]
 getRefIds (PExp _ _ _ (IStr _)) = [stringType]
 getRefIds (PExp _ _ _ (IDeclPExp{_quant = ISome})) = []
+-- Sigil-Logic/clafer#31: a parenthesized negative literal `x -> (-1)` is
+-- unary minus over the literal (the grammar has no negative literals), so
+-- the target's type is the literal's.  Unary minus over anything else --
+-- a set or arithmetic expression -- stays the loud invariant below.
+getRefIds pexp'@(PExp _ _ _ (IFunExp{_op="-", _exps = [_]}))
+  | isNumericLiteral (_exp folded) = getRefIds folded
+  where
+    folded = foldNegativeLiterals pexp'
 getRefIds pexp' = error $ "[Bug] Commmon.getRefIds called on unexpected argument '" ++ show pexp' ++ "'"
+
+isNumericLiteral :: IExp -> Bool
+isNumericLiteral IInt{}    = True
+isNumericLiteral IDouble{} = True
+isNumericLiteral IReal{}   = True
+isNumericLiteral _         = False
+
+-- | Folds unary minus over a numeric literal into the negative literal,
+-- one node at a time: @(-1)@ parses as 'IFunExp' @"-"@ over 'IInt' @1@,
+-- which becomes 'IInt' @(-1)@; any other expression is returned unchanged.
+-- Shared by every consumer of a reference target -- 'getRefIds', the Alloy
+-- declaration renderer, and the Choco classifier and constraint printer --
+-- so they agree on the literal (Sigil-Logic/clafer#31).
+negateLiteral :: PExp -> PExp
+negateLiteral pexp'@PExp{_exp = IFunExp{_op = "-", _exps = [PExp{_exp = operand}]}} = case operand of
+  IInt    k -> pexp'{_exp = IInt    (negate k)}
+  IDouble d -> pexp'{_exp = IDouble (negate d)}
+  IReal   r -> pexp'{_exp = IReal   (negate r)}
+  _         -> pexp'
+negateLiteral pexp' = pexp'
+
+-- | 'negateLiteral' applied bottom-up over a whole expression: a literal
+-- nested in a set expression, @(-1) ++ 1@, folds in place, and a doubly
+-- negated literal, @(-(-1))@, folds to @1@.
+foldNegativeLiterals :: PExp -> PExp
+foldNegativeLiterals = transformOf uniplate negateLiteral
 
 isEqClaferId :: String -> IClafer -> Bool
 isEqClaferId    uid'      claf'    = _uid claf' == uid'
