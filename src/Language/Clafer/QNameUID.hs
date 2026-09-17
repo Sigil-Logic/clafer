@@ -35,7 +35,7 @@ module Language.Clafer.QNameUID (
 
 where
 
-import Data.List (isPrefixOf)
+import Data.List (isInfixOf, isPrefixOf)
 import Data.Maybe
 import Data.List.Split
 import qualified Data.Map as Map
@@ -152,7 +152,19 @@ generateUIDLpqMapEntry    fqNameUIDMap     fqKey       uid'   uidLpqNameMap =
               then fqName'
               else findLeastQualifiedName pqName fqNameUIDMap'
       -- handle partially qualified name case
-      findLeastQualifiedName pqName fqNameUIDMap' =
+      findLeastQualifiedName pqName fqNameUIDMap'
+         -- a plain name has no qualification left to remove: it is the
+         -- least-qualified form, and the caller has already established
+         -- that it identifies the clafer uniquely.  Without this base case
+         -- the step below strips the plain name to the empty name, whose
+         -- prefix search returns every clafer in the module; a module with
+         -- a single clafer never returns more than one, so the recursion
+         -- looped on the empty name forever and `--meta-data` hung on any
+         -- single-top-level-clafer model (Sigil-Logic/clafer#34).  Modules
+         -- with two or more clafers stopped here by accident, because the
+         -- empty prefix matched them all.
+         | not ("::" `isInfixOf` pqName) = pqName
+         | otherwise =
          let
             -- remove one segment of qualification
             lessQName =  concat $ drop 2 $ split (onSublist "::") pqName
