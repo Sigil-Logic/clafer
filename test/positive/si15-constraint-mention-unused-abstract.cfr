@@ -1,0 +1,8 @@
+// Sigil-Logic/clafer#15: abstract mentioned only in a constraint.
+// Under the default flags remUnusedAbs dropped Extra while the
+// generators kept emitting `{ no c0_Extra }`.
+
+abstract Extra
+
+Thing
+    [ no Extra ]

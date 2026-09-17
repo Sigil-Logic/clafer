@@ -49,7 +49,7 @@ CHOCO_MANIFEST = .validate-choco.list
 DIFF_GEN_MANIFEST = .diff-generated.list
 DIFF_REG_MANIFEST = .diff-baselines.list
 
-.PHONY: test generateAlloyJSHTMLDot validateAlloyOutput validateChocoOutput validateCliGating diffRegressions reg newReg clean
+.PHONY: test generateAlloyJSHTMLDot validateAlloyOutput validateChocoOutput validateCliGating validateDefaultFlagOutput diffRegressions reg newReg clean
 
 UNAME := $(shell uname | tr "A-Z" "a-z")
 
@@ -89,6 +89,7 @@ test:
 	$(MAKE) validateAlloyOutput
 	$(MAKE) validateChocoOutput
 	$(MAKE) validateCliGating
+	$(MAKE) validateDefaultFlagOutput
 	$(MAKE) diffRegressions
 
 generateAlloyJSHTMLDot:
@@ -280,6 +281,61 @@ validateCliGating:
 		echo "[FAIL] missing dot: -o stdout must still carry generated output"; status=1; fi; \
 	rm -rf "$$tmp"; \
 	if [ $$status -eq 0 ]; then echo "CLI gating: 7 probes passed."; fi; \
+	[ $$status -eq 0 ]
+
+# Default-flag output validation (Sigil-Logic/clafer#15).  Everything
+# above runs with keep_unused in effect: $(CLAFER) passes -k, and the
+# Html/Graph modes force keep_unused on regardless of the flag (see
+# Language.ClaferT), so neither the .reg corpus nor the validation legs
+# ever exercise the default-flag path in which remUnusedAbs DROPS the
+# abstract clafers no concrete clafer extends.  That path dangled for
+# every unused abstract the retained module still mentions -- as a
+# reference target or in a constraint -- and was caught only by
+# validating a private PLE corpus.  This leg
+# compiles the listed models WITHOUT -k, in the Alloy and Choco modes
+# only (adding Html/Graph would silently re-enable keep_unused), into a
+# scratch directory and runs both validators on the result.  Note that
+# chocosolver -v exits 0 on a dangling name (it prints "Unhandled
+# compilation error ... ReferenceError" and carries on;
+# Sigil-Logic/chocosolver#8), so the Choco check gates on the output
+# text as well as the exit status until a fixed jar is re-pinned --
+# chocosolver#8 carries the follow-through item to drop that text gate
+# here once CHOCOSOLVER_COMMIT is bumped to a fixed build.  The scratch
+# directory is removed by an EXIT/HUP/INT/TERM trap, so an interrupted
+# run leaks nothing (PR #28 HOARDE Codex Cycle 1).
+CLI_CLAFER_DEFAULT = "$(CURDIR)/../clafer" -s "--tooldir=$(CURDIR)/.."
+DEFAULT_FLAG_MODELS = i235.cfr gi84-parent-top-level-abstract.cfr \
+	si15-ref-target-unused-abstract.cfr \
+	si15-constraint-mention-unused-abstract.cfr
+
+validateDefaultFlagOutput:
+	@echo "=================================================================="
+	@echo "| Testing default-flag output, no -k (see Sigil-Logic/clafer#15) |"
+	@echo "=================================================================="
+	@if test ! -f "$(ALLOY_JAR)"; then \
+		echo "[ERROR] Missing $(ALLOY_JAR)."; false; \
+	fi
+	@if test ! -f "$(CHOCOSOLVER_JAR)"; then \
+		echo "[ERROR] Missing $(CHOCOSOLVER_JAR)."; false; \
+	fi
+	@tmp=$$(mktemp -d) || { echo "[ERROR] mktemp -d failed"; exit 1; }; \
+	trap 'rm -rf "$$tmp"' EXIT HUP INT TERM; \
+	status=0; checked=0; \
+	for m in $(DEFAULT_FLAG_MODELS); do \
+		if ! cp "$(SUITE_DIR)/$$m" "$$tmp/"; then \
+			echo "[FAIL] $$m: missing from $(SUITE_DIR)/"; status=1; continue; fi; \
+		base=$${m%.cfr}; checked=$$((checked+1)); \
+		if ! (cd "$$tmp" && $(CLI_CLAFER_DEFAULT) -m=alloy -m=choco "$$m" >/dev/null 2>&1); then \
+			echo "[FAIL] $$m: clafer exited non-zero under the default flags"; status=1; continue; fi; \
+		if ! out=$$($(VALIDATE_ALLOY) "$$tmp/$$base.als" 2>&1); then \
+			echo "[FAIL] Alloy 6.2.0 rejects the default-flag output of $$m:"; \
+			printf '%s\n' "$$out" | sed 's/^/    /'; status=1; fi; \
+		if ! out=$$($(VALIDATE_CHOCO) "$$tmp/$$base.js" 2>&1) || \
+		   printf '%s\n' "$$out" | grep -q "Unhandled compilation error\|ReferenceError"; then \
+			echo "[FAIL] chocosolver rejects the default-flag output of $$m:"; \
+			printf '%s\n' "$$out" | sed 's/^/    /'; status=1; fi; \
+	done; \
+	echo "Default-flag validation: $$checked models checked, $$( [ $$status -eq 0 ] && echo all accepted || echo FAILURES )."; \
 	[ $$status -eq 0 ]
 
 # One gated diff leg (Sigil-Logic/clafer#22): $(call DIFF_LEG,<ext>,<label>)

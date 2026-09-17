@@ -1,0 +1,12 @@
+open util/integer
+pred show {}
+run show for 1 but 0 c0_Extra
+
+fact { #c0_Extra = 0 }
+abstract sig c0_Extra
+{}
+
+one sig c0_Thing
+{}
+{ no c0_Extra }
+
