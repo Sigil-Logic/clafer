@@ -8,12 +8,9 @@
 # being generated, the harness fails with a [STALE] error and the entry
 # must be removed.
 #
-# mergeExpAndSetExpAlloy.js: the Choco generator silently drops
-# set-expression reference targets (`Alice ** Person`, `++`, `--`,
-# integer enumerations), emitting bare `c0_uid;` statements
-# (Generator/Choco.hs, genSuperRefConstraintAssertGoal fallthrough);
-# the model's asserts then joinRef the never-emitted onlyAlice /
-# exceptElla refs, and chocosolver rejects the file (TypeException:
-# Cannot join c0_onlyAlice . ref).  Generator bug tracked as
-# Sigil-Logic/clafer#18; fixing #18 must empty this list.
-mergeExpAndSetExpAlloy.js
+# Currently empty.  The sole entry so far, mergeExpAndSetExpAlloy.js
+# (the Choco generator dropped set-expression reference targets, so the
+# model's asserts joined a never-emitted ref: TypeException), was
+# removed when Sigil-Logic/clafer#18 fixed the generator.  Expected
+# assertion counterexamples are a separate list,
+# choco-assertion-negatives.txt.

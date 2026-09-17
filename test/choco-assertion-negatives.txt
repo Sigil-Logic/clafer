@@ -1,0 +1,17 @@
+# Expected assertion counterexamples for the gated Choco leg
+# (Sigil-Logic/clafer#18; consumed by test/Makefile validateChocoOutput).
+#
+# `chocosolver -v` exits 0 whether or not it finds a counterexample
+# (recorded on Sigil-Logic/chocosolver#8), so validateChocoOutput also
+# gates on the text `Failed assertion` in the validator output.  Each
+# entry names a generated .js under test/positive/ whose assertions
+# are EXPECTED to have a counterexample.  Entries are strict: a listed
+# file must exist and must still produce a `Failed assertion`, or the
+# harness fails with a [STALE] error and the entry must be removed.
+#
+# escapes.js: the model's `Bob.spouse = Alice` assertion depends on the
+# symmetric-spouse fact that lives only in its [alloy| ... |] escape
+# (the [choco| ... |] escape carries it commented out), so chocosolver
+# legitimately finds a counterexample; the same file is chocosolver's
+# own assert-negative/escapes.js fixture.
+escapes.js

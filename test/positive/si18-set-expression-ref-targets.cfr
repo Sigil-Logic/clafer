@@ -1,0 +1,55 @@
+// Sigil-Logic/clafer#18: reference targets that are not a plain clafer
+// -- set expressions over clafers, integer and string literals and
+// enumerations, `integer -- e` -- used to be dropped by the Choco
+// generator: a bare `cN_uid;` statement, or (for a single literal) the
+// primitive type without its literal.  Every target below is now
+// emitted as a carrier type plus a membership constraint on the
+// referred value.  The assertions hold only if that restriction is
+// emitted, so the gated Choco leg -- which fails on a `Failed
+// assertion` in the chocosolver -v output -- guards the encoding end
+// to end; the emission itself is baselined in the .js.reg.
+
+abstract Person
+    abstract Head
+
+Alice : Person
+    `Head
+
+Ella : Person
+
+// unrelated to Person: a union with it has no common super clafer
+Guest
+
+// set expressions over clafers
+friend -> Alice ++ Ella 2
+onlyAlice -> Alice ** Person
+exceptElla -> Person -- Ella
+anyone -> Person ++ Guest
+heads -> Person.Head
+
+// integer enumerations, literals, and complements
+grade -> 1, 2, 3
+nonZero -> integer -- 0
+single -> 1
+notZeroOrOne -> integer -- 0 -- 1
+smallOrAny -> integer ** (1 ++ 2)
+
+// string literals, enumerations, and co-finite sets
+name -> "Alice"
+tag -> "a", "b"
+notA -> string -- "a"
+notAB -> string -- "a" -- "b"
+
+assert [ Alice in friend.dref && Ella in friend.dref ]
+assert [ onlyAlice = Alice ]
+assert [ exceptElla = Alice ]
+assert [ anyone in Person ++ Guest ]
+assert [ grade >= 1 && grade <= 3 ]
+assert [ nonZero != 0 ]
+assert [ single = 1 ]
+assert [ notZeroOrOne != 0 && notZeroOrOne != 1 ]
+assert [ smallOrAny = 1 || smallOrAny = 2 ]
+assert [ name = "Alice" ]
+assert [ tag = "a" || tag = "b" ]
+assert [ notA != "a" ]
+assert [ notAB != "a" && notAB != "b" ]

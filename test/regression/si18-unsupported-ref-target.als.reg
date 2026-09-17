@@ -1,0 +1,13 @@
+open util/integer
+pred show {}
+run show for 1
+
+abstract sig c0_Person
+{}
+
+one sig c0_Alice extends c0_Person
+{}
+
+one sig c0_mixed
+{ c0_mixed_ref : one c0_Person + 1 }
+
