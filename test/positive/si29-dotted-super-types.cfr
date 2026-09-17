@@ -1,0 +1,35 @@
+// Sigil-Logic/clafer#29: dotted paths as super types.  Each `x : A.B` below
+// resolves to the abstract clafer B declared under A and is emitted as
+// ordinary inheritance by every backend (Alloy `extends`, Choco
+// `.extending(...)`), exactly as the plain form `x : B` is when B is unique.
+
+// Disambiguation: two nested abstracts share the name Head, so the plain
+// form `h : Head` is rejected as ambiguous; the path selects one of them.
+abstract Person
+    abstract Head
+
+abstract Animal
+    abstract Head
+
+Ella : Person
+    h : Person.Head
+
+Rex : Animal
+    h : Animal.Head
+
+// Three segments: each further segment names a direct child of the clafer
+// reached so far.
+abstract Vehicle
+    abstract Engine
+        abstract Cylinder
+
+Car : Vehicle
+    `Engine
+        c : Vehicle.Engine.Cylinder 2
+
+// A top-level abstract clafer may extend a nested abstract clafer through a
+// path as well; it is relocated next to its super (gsdlab/clafer#67).
+abstract Bust : Person.Head
+
+Bob : Person
+    b : Bust
