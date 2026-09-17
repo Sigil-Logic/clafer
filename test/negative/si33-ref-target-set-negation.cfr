@@ -1,0 +1,4 @@
+// Sigil-Logic/clafer#33: unary minus over a set expression does not fold to
+// a literal; it must be rejected with a positioned semantic error, not crash
+// Common.getRefIds.
+x -> (-(1 ++ 2))

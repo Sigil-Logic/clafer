@@ -1,0 +1,3 @@
+// Sigil-Logic/clafer#33: the remainder operator by zero is rejected like
+// division by zero, even inside a set expression.
+x -> (1 % 0) -- 1

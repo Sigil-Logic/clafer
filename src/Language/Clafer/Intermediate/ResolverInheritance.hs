@@ -24,11 +24,12 @@
 module Language.Clafer.Intermediate.ResolverInheritance where
 
 import           Control.Applicative
-import           Control.Lens  ((^.), (&), (%%~), (.~))
+import           Control.Lens  ((^.), (&), (%%~), (.~), universeOn)
 import           Control.Monad
 import           Control.Monad.Except
 import           Control.Monad.State
 import           Data.Maybe
+import           Data.Data.Lens (biplate)
 import           Data.Graph
 import           Data.Tree
 import           Data.List
@@ -209,6 +210,45 @@ resolveOClafer env clafer =
 resolveOReference :: SEnv -> Maybe IReference -> Resolve (Maybe IReference)
 resolveOReference _   Nothing                      = return Nothing
 resolveOReference env (Just (IReference is' mods exp')) = Just <$> IReference is' mods <$> resolvePExp env exp'
+
+
+-- | Reject every reference target that still contains arithmetic after
+-- 'foldLiteralArithmetic' (Sigil-Logic/clafer#33), with a semantic error
+-- positioned at the innermost sub-expression that fails to fold
+-- ('residualArithmetic').  Closed integer arithmetic folds to the literal
+-- it denotes and is taken by every backend (@x -> (1 - 2)@ declares the
+-- literal @-1@); anything else -- a clafer operand, unary minus over a set
+-- expression, arithmetic over real literals, a division by zero -- has no
+-- declaration-position rendering in Alloy 6.2.0 (which rejects the
+-- @util/integer@ call forms there) and no chocosolver encoding, and used to
+-- reach the @[Bug]@ invariant of 'getRefIds' in every output mode.
+--
+-- This runs over the whole module before any target is resolved rather
+-- than inside 'resolveOReference', for two reasons: resolving one target
+-- navigates through other clafers, and that navigation evaluates their
+-- reference-target ids ('getSuperAndReference' via @allChildren@), so a
+-- later-declared clafer's arithmetic target could reach the invariant
+-- before its own turn; and the reference resolver is skipped altogether
+-- under @--skip-resolver@, which must not reopen the crash.  The targets
+-- are inspected in document order, so the first offending one is reported.
+rejectUnfoldableReferenceTargets :: IModule -> Resolve ()
+rejectUnfoldableReferenceTargets imodule =
+  forM_ (universeOn biplate imodule :: [IClafer]) $ \clafer ->
+    forM_ (residualArithmetic =<< _ref <$> _reference clafer) $ \node ->
+      throwError $ SemanticErr (_inPos node) $ unfoldableReferenceTargetMsg node
+
+-- | The message for a rejected arithmetic reference target: the failing
+-- sub-expression's operator and why it does not fold, then the rule.
+unfoldableReferenceTargetMsg :: PExp -> String
+unfoldableReferenceTargetMsg node =
+  "Unsupported reference target: " ++ detail ++ ".  Arithmetic in a reference target must be closed integer arithmetic that folds to a literal, as in x -> (1 - 2)"
+  where
+    detail = case _exp node of
+      IFunExp{_exps = [_]} -> "the operand of unary '-' is not a numeric literal"
+      IFunExp{_op = op', _exps = [_, PExp{_exp = IInt 0}]}
+        | op' `elem` [iDiv, iRem] -> "'" ++ op' ++ "' divides by zero"
+      IFunExp{_op = op'} -> "the operands of '" ++ op' ++ "' are not both integer literals"
+      other -> error $ "[Bug] ResolverInheritance.unfoldableReferenceTargetMsg called on a non-arithmetic node '" ++ show other ++ "'"
 
 
 resolveOElement :: SEnv -> IElement -> Resolve IElement

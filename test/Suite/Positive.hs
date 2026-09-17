@@ -596,3 +596,144 @@ case_si31_temporal_alloy_declares_the_negative_literal_bare =
         si29_assertContains variant expected alloyLtlCode
         (not $ "_ref : -1.mul[" `isInfixOf` alloyLtlCode)
             @? (variant ++ ": the declaration must not use the unary-minus rendering:\n" ++ alloyLtlCode)
+
+-- Sigil-Logic/clafer#33: closed integer arithmetic as a reference target.
+-- `x -> (1 - 2)` is the binary operator over two literals in the IR (a
+-- reference target is parsed above the arithmetic levels, so only the
+-- parentheses reach them), which Common.getRefIds had no case for, so every
+-- output mode crashed before any backend ran.  The expression now folds to
+-- the literal it denotes at every consumer of a reference target
+-- (Common.foldLiteralArithmetic, #31's fold extended with the five operators
+-- `+ - * / %` over two integer literals, bottom-up), landing on the #31
+-- literal encodings of both backends; arithmetic that does not fold is
+-- rejected by the resolver with a positioned semantic error before any
+-- consumer runs.  Facts are not folded, so the constraint rendering of the
+-- operators is unchanged.
+
+si33_reproducer :: String
+si33_reproducer = "x -> (1 - 2)\nassert [ x = -1 ]\n"
+
+case_si33_folded_arithmetic_ref_target_compiles_in_every_mode :: Assertion
+case_si33_folded_arithmetic_ref_target_compiles_in_every_mode =
+    forM_ [Alloy, Choco, Html, Graph, CVLGraph, JSON] $ \m ->
+        case Map.lookup m (si31_results [m] si33_reproducer) of
+            Just CompilerResult{} -> return ()
+            other -> assertFailure (show m ++ ": expected output for `x -> (1 - 2)`, got " ++ show other)
+
+-- Alloy declares the folded literal bare, as for #31's negative literal (the
+-- `util/integer` call forms `1.minus[2]` are rejected in declaration position
+-- by 6.2.0).  Division and remainder truncate toward zero -- the semantics of
+-- Alloy 6.2.0's `div`/`rem` and of chocosolver's `div`/`mod`, checked with
+-- both jars on these operands: `alloy exec` finds every `check` of
+-- test/positive/si33-literal-arithmetic-ref-target.als UNSAT and chocosolver
+-- -v finds no counterexample, while the floored values -4 and 1 produce
+-- counterexamples in both.
+case_si33_alloy_declares_the_folded_literal_bare :: Assertion
+case_si33_alloy_declares_the_folded_literal_bare =
+    forM_ [ ("subtraction", "s -> (1 - 2)\n", "{ c0_s_ref : one -1 }")
+          , ("addition", "s -> (2 + 3)\n", "{ c0_s_ref : one 5 }")
+          , ("multiplication", "s -> (2 * 3)\n", "{ c0_s_ref : one 6 }")
+          , ("division truncates toward zero", "s -> ((-7) / 2)\n", "{ c0_s_ref : one -3 }")
+          , ("division by a negative divisor", "s -> (7 / (-2))\n", "{ c0_s_ref : one -3 }")
+          , ("remainder takes the dividend's sign", "s -> ((-7) % 2)\n", "{ c0_s_ref : one -1 }")
+          , ("remainder with a negative divisor", "s -> (7 % (-2))\n", "{ c0_s_ref : one 1 }")
+          , ("nested", "s -> ((1 - 2) * (-(2 + 1)))\n", "{ c0_s_ref : one 3 }")
+          , ("negated", "s -> (-(1 - 2))\n", "{ c0_s_ref : one 1 }")
+          , ("inside a set expression", "s -> (1 - 2) ++ (2 + 3)\n", "{ c0_s_ref : one -1 + 5 }")
+          , ("bag", "s ->> (2 * 3) 2\n", "{ c0_s_ref : one 6 }")
+          ] $ \(variant, decl, expected) -> si29_assertContains variant expected (si31_alloy decl)
+
+case_si33_choco_emits_the_folded_constant :: Assertion
+case_si33_choco_emits_the_folded_constant = do
+    si18_assertEncoding "reproducer" si33_reproducer
+        "c0_x.refToUnique(Int);\nc0_x.addConstraint($in(joinRef($this()), constant(-1)));\n"
+    forM_ [ ("division truncates toward zero", "s -> ((-7) / 2)\n",
+             "c0_s.refToUnique(Int);\nc0_s.addConstraint($in(joinRef($this()), constant(-3)));\n")
+          , ("remainder takes the dividend's sign", "s -> ((-7) % 2)\n",
+             "c0_s.refToUnique(Int);\nc0_s.addConstraint($in(joinRef($this()), constant(-1)));\n")
+          , ("nested", "s -> ((1 - 2) * (-(2 + 1)))\n",
+             "c0_s.refToUnique(Int);\nc0_s.addConstraint($in(joinRef($this()), constant(3)));\n")
+          , ("inside a set expression", "s -> (1 - 2) ++ (2 + 3)\n",
+             "c0_s.refToUnique(Int);\nc0_s.addConstraint($in(joinRef($this()), union(constant(-1), constant(5))));\n")
+          , ("bag", "s ->> (2 * 3) 2\n",
+             "c0_s.refTo(Int);\nc0_s.addConstraint($in(joinRef($this()), constant(6)));\n")
+          ] $ \(variant, decl, expected) -> si18_assertEncoding variant decl expected
+
+case_si33_folded_target_equals_the_plain_literal :: Assertion
+case_si33_folded_target_equals_the_plain_literal =
+    forM_ [ ("s -> (2 * 3)\n", "s -> 6\n")
+          , ("s -> ((-7) / 2)\n", "s -> (-3)\n")
+          , ("s -> (1 - 2) ++ (2 + 3)\n", "s -> (-1) ++ 5\n")
+          ] $ \(folded, plain) -> do
+        (si31_alloy folded == si31_alloy plain) @? ("Alloy: `" ++ folded ++ "` must compile as `" ++ plain ++ "`")
+        (si31_choco folded == si31_choco plain) @? ("Choco: `" ++ folded ++ "` must compile as `" ++ plain ++ "`")
+
+-- The temporal Alloy generator has its own declaration renderer
+-- (AlloyLtl.refType, #31), which shares the fold.
+case_si33_temporal_alloy_declares_the_folded_literal :: Assertion
+case_si33_temporal_alloy_declares_the_folded_literal =
+    forM_ [ ("final modifier", "final marker\nx -> (1 - 2)\n", "{ c0_x_ref : -1 -> State }")
+          , ("inside a set expression", "final marker\nx -> (2 * 3) ++ 1\n", "{ c0_x_ref : 6 + 1 -> State }")
+          ] $ \(variant, model, expected) -> do
+        let alloyLtlCode = outputCode $ fromJust $ Map.lookup Alloy $ si31_results [Alloy] model
+        si29_assertContains variant expected alloyLtlCode
+        (not $ any (`isInfixOf` alloyLtlCode) ["_ref : 1.minus[", "_ref : 2.mul["])
+            @? (variant ++ ": the declaration must not use the call-form rendering:\n" ++ alloyLtlCode)
+
+-- Facts are not folded: the constraint side renders the operators exactly as
+-- before (the corpus diff legs check the same across every baseline).
+case_si33_constraint_arithmetic_is_not_folded :: Assertion
+case_si33_constraint_arithmetic_is_not_folded = do
+    let model = "a -> integer\nb -> integer\n[ a = (1 - 2) * 3 ]\n[ b = (-7) / 2 + (-7) % 2 ]\n"
+    si29_assertContains "Alloy, a" "fact { (c0_a.@c0_a_ref) = ((-1.mul[1]).mul[3]) }" (si31_alloy model)
+    si29_assertContains "Alloy, b" "fact { (c0_b.@c0_b_ref) = (((-1.mul[7]).div[2]).plus[((-1.mul[7]).rem[2])]) }" (si31_alloy model)
+    si29_assertContains "Choco, a" "Constraint(equal(joinRef(global(c0_a)), mul(sub(constant(1), constant(2)), constant(3))));" (si31_choco model)
+    si29_assertContains "Choco, b" "Constraint(equal(joinRef(global(c0_b)), add(div(constant(-7), constant(2)), mod(constant(-7), constant(2)))));" (si31_choco model)
+
+-- Arithmetic that does not fold is a positioned semantic error from the
+-- resolver (ResolverInheritance.rejectUnfoldableReferenceTargets), located
+-- at the innermost sub-expression that fails to fold and naming its
+-- operator; the message text is the one test/negative/si33-* models produce.
+si33_rule :: String
+si33_rule = ".  Arithmetic in a reference target must be closed integer arithmetic that folds to a literal, as in x -> (1 - 2)"
+
+si33_assertRejected :: String -> ClaferArgs -> String -> Pos -> String -> Assertion
+si33_assertRejected variant args' model expectedPos detail =
+    case compileOneFragment args' model of
+        Left [SemanticErr{pos = ErrPos{modelPos = actualPos}, msg = actual}] -> do
+            (actual == expected) @? (variant ++ ": expected the message\n" ++ expected ++ "\nbut got\n" ++ actual)
+            (actualPos == expectedPos) @? (variant ++ ": expected the error at " ++ show expectedPos ++ " but got " ++ show actualPos)
+        Left errors -> assertFailure (variant ++ ": expected exactly one positioned semantic error, got " ++ show errors)
+        Right _     -> assertFailure (variant ++ ": the model is not expected to compile")
+  where
+    expected = "Unsupported reference target: " ++ detail ++ si33_rule
+
+case_si33_unfoldable_arithmetic_ref_targets_are_rejected_with_position :: Assertion
+case_si33_unfoldable_arithmetic_ref_targets_are_rejected_with_position =
+    forM_ [ ("set negation", "x -> (-(1 ++ 2))\n", Pos 1 7, "the operand of unary '-' is not a numeric literal")
+          , ("clafer operand", "y -> integer\nx -> (y + 1)\n", Pos 2 7, "the operands of '+' are not both integer literals")
+          , ("negated clafer", "y -> integer\nx -> (-y)\n", Pos 2 7, "the operand of unary '-' is not a numeric literal")
+          , ("division by zero", "x -> (1 / 0)\n", Pos 1 7, "'/' divides by zero")
+          , ("remainder by zero", "x -> (1 % 0)\n", Pos 1 7, "'%' divides by zero")
+          , ("real literals", "x -> (1.5 + 1.5)\n", Pos 1 7, "the operands of '+' are not both integer literals")
+          , ("division by zero inside a set expression", "x -> (1 / 0) ++ 5\n", Pos 1 7, "'/' divides by zero")
+          , ("innermost offender", "x -> ((1 / 0) + 2)\n", Pos 1 8, "'/' divides by zero")
+          , ("innermost offender under a set negation", "x -> (-(1 ++ (2 / 0)))\n", Pos 1 15, "'/' divides by zero")
+          ] $ \(variant, model, expectedPos, detail) -> si33_assertRejected variant defaultClaferArgs model expectedPos detail
+
+-- The check runs over the whole module before any target is resolved:
+-- resolving `x -> a.b` navigates through `a` and evaluates its
+-- reference-target ids, so a later-declared offender would otherwise reach
+-- the getRefIds invariant first; offenders are reported in document order;
+-- and the check survives --skip-resolver, which skips reference resolution.
+case_si33_rejection_precedes_navigation_and_survives_skip_resolver :: Assertion
+case_si33_rejection_precedes_navigation_and_survives_skip_resolver = do
+    si33_assertRejected "declared after the reference that navigates it" defaultClaferArgs
+        "x -> a.b\na -> (1 / 0)\n    b\n" (Pos 2 7) "'/' divides by zero"
+    si33_assertRejected "document order" defaultClaferArgs
+        "A\n    x -> (1 / 0)\nC -> (2 / 0)\n" (Pos 2 11) "'/' divides by zero"
+    si33_assertRejected "skip resolver" defaultClaferArgs{skip_resolver = True}
+        "y -> integer\nx -> (y + 1)\n" (Pos 2 7) "the operands of '+' are not both integer literals"
+    forM_ [Alloy, Choco, Html, Graph, CVLGraph, JSON] $ \m ->
+        si33_assertRejected ("mode " ++ show m) defaultClaferArgs{mode = [m]}
+            "x -> (1 / 0)\n" (Pos 1 7) "'/' divides by zero"
