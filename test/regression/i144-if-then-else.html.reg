@@ -32,7 +32,7 @@ a[href$='Ambiguous name'] {color: yellow}
 
 
 <div>
-<span class="keyword">[</span> <span class="keyword">if </span><a href="#c0_BobsBirthday"><span class="reference">BobsBirthday</span></a><span class="keyword"> then </span><a href="#c0_BobAge"><span class="reference">BobAge</span></a>.<span class="keyword">dref</span><span class="keyword"> else </span><a href="#c0_AliceAge"><span class="reference">AliceAge</span></a>.<span class="keyword">dref</span> = 5 <span class="keyword">]</span></div>
+<span class="keyword">[</span> (<span class="keyword">if </span><a href="#c0_BobsBirthday"><span class="reference">BobsBirthday</span></a><span class="keyword"> then </span><a href="#c0_BobAge"><span class="reference">BobAge</span></a>.<span class="keyword">dref</span><span class="keyword"> else </span><a href="#c0_AliceAge"><span class="reference">AliceAge</span></a>.<span class="keyword">dref</span>) = 5 <span class="keyword">]</span></div>
 
 </body>
 </html>

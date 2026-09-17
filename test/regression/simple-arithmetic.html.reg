@@ -22,7 +22,7 @@ a[href$='Ambiguous name'] {color: yellow}
 <div>
 <span class="claferDecl" id="c0_A">A</span>
   <div class="indent">
-  <span class="keyword">[</span> 1 + 2 * 3 = 9 <span class="keyword">]</span></div>
+  <span class="keyword">[</span> (1 + 2) * 3 = 9 <span class="keyword">]</span></div>
 </div>
 
 </body>

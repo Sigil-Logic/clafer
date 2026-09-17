@@ -20,7 +20,7 @@ a[href$='Ambiguous name'] {color: yellow}
 <body>
 
 <div>
-<span class="claferDecl" id="c0_neg">neg</span><span class="keyword"> -> </span>-1</div>
+<span class="claferDecl" id="c0_neg">neg</span><span class="keyword"> -> </span>(-1)</div>
 
 
 <div>
@@ -28,7 +28,7 @@ a[href$='Ambiguous name'] {color: yellow}
 
 
 <div>
-<span class="claferDecl" id="c0_negOrOne">negOrOne</span><span class="keyword"> -> </span>-1++1</div>
+<span class="claferDecl" id="c0_negOrOne">negOrOne</span><span class="keyword"> -> </span>(-1)++1</div>
 
 
 <div>

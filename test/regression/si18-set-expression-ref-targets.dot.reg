@@ -23,7 +23,7 @@ edge [fontname=Sans fontsize=11];
 "c0_nonZero" [label="nonZero -&gt; integer--0" URL="#c0_nonZero" tooltip="nonZero -&gt; integer--0&#10;"];
 "c0_single" [label="single -&gt; 1" URL="#c0_single" tooltip="single -&gt; 1&#10;"];
 "c0_notZeroOrOne" [label="notZeroOrOne -&gt; integer--0--1" URL="#c0_notZeroOrOne" tooltip="notZeroOrOne -&gt; integer--0--1&#10;"];
-"c0_smallOrAny" [label="smallOrAny -&gt; integer**1++2" URL="#c0_smallOrAny" tooltip="smallOrAny -&gt; integer**1++2&#10;"];
+"c0_smallOrAny" [label="smallOrAny -&gt; integer**(1++2)" URL="#c0_smallOrAny" tooltip="smallOrAny -&gt; integer**(1++2)&#10;"];
 "c0_name" [label="name -&gt; &quot;Alice&quot;" URL="#c0_name" tooltip="name -&gt; &quot;Alice&quot;&#10;"];
 "c0_tag" [label="tag -&gt; &quot;a&quot;, &quot;b&quot;" URL="#c0_tag" tooltip="tag -&gt; &quot;a&quot;, &quot;b&quot;&#10;"];
 "c0_notA" [label="notA -&gt; string--&quot;a&quot;" URL="#c0_notA" tooltip="notA -&gt; string--&quot;a&quot;&#10;"];
