@@ -114,6 +114,11 @@ case_si34_multi_clafer_least_qualified_names_unchanged = do
         [("::A", "A", "c0_A"), ("::B", "B", "c0_B")]
     si34_assertTriples "a plain name shared by two children" "A\n    B\nC\n    B\n"
         [("::A", "A", "c0_A"), ("::A::B", "A::B", "c0_B"), ("::C", "C", "c0_C"), ("::C::B", "C::B", "c1_B")]
+    -- a plain name that prefixes another clafer's name is over-qualified by
+    -- the character-wise prefix search (Sigil-Logic/clafer#38 tracks the
+    -- fix); pinned here as unchanged by #34, to be updated by #38
+    si34_assertTriples "a plain name prefixing another clafer's name (Sigil-Logic/clafer#38)" "A\nAB\n"
+        [("::A", "::A", "c0_A"), ("::AB", "AB", "c0_AB")]
 
 case_FQMapLookup :: Assertion
 case_FQMapLookup = do

@@ -114,7 +114,12 @@ findUIDsByFQName    fqNameUIDMap    fqName             = prefixFind (getFQKey fq
 
 -- all values whose key begins with the given prefix, in ascending key order
 -- (replaces Data.StringMap.prefixFind: keys sharing a prefix form a
---  contiguous range in an ordered map, carved out by two antitone splits)
+--  contiguous range in an ordered map, carved out by two antitone splits).
+-- The match is character-wise, not segment-wise: the prefix `A` also matches
+-- the key `AB::`, so a plain name that prefixes another clafer's name is
+-- judged ambiguous and over-qualified (`A` beside `AB` derives `::A`).
+-- Sigil-Logic/clafer#38 tracks the segment-boundary fix; Sigil-Logic/clafer#34
+-- left it unchanged so every multi-clafer .cfr-map stays byte-identical.
 prefixFind :: FQKey -> FQNameUIDMap -> [UID]
 prefixFind    prefix   fqNameUIDMap =
     Map.elems $ Map.takeWhileAntitone (prefix `isPrefixOf`) $ Map.dropWhileAntitone (< prefix) fqNameUIDMap
