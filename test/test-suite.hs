@@ -25,6 +25,8 @@ import Data.Data.Lens
 import Data.List
 import qualified Data.Map as Map
 import Data.Maybe
+import Control.Exception (evaluate)
+import System.Timeout (timeout)
 import Language.Clafer
 import Language.Clafer.QNameUID
 import Language.Clafer.Intermediate.Intclafer
@@ -72,6 +74,51 @@ a\n    b\nb\nc\n    d\n         b\nd\n    b
 -}
 model :: String
 model = "a\n    b\nb\nc\n    d\n         b\nd\n    b"
+
+-- Sigil-Logic/clafer#34: deriving the least-qualified name of the only
+-- clafer in a module looped forever (stripping the plain name yields the
+-- empty name, whose prefix search matches every clafer, and one clafer is
+-- never more than one), so `--meta-data` hung on any single-top-level-clafer
+-- model.  A plain name is now the base case.  The derivation is forced
+-- under a timeout so a recurrence fails the suite instead of hanging it.
+si34_qNameMaps :: String -> QNameMaps
+si34_qNameMaps model' =
+    case cIr $ claferEnv $ fromJust $ Map.lookup Alloy $ fromRight $ compileOneFragment defaultClaferArgs model' of
+        Just (iModule, _, _) -> deriveQNameMaps iModule
+        Nothing              -> error ("si34: no IR for the model " ++ show model')
+
+si34_assertTriples :: String -> String -> [(FQName, PQName, UID)] -> Assertion
+si34_assertTriples variant model' expected = do
+    forced <- timeout 10000000 $ evaluate $ length $ show triples
+    case forced of
+        Nothing -> assertFailure (variant ++ ": deriving the qualified-name maps did not terminate within 10s")
+        Just _  -> (triples == expected) @? (variant ++ ": expected " ++ show expected ++ " but got " ++ show triples)
+  where
+    triples = getQNameUIDTriples $ si34_qNameMaps model'
+
+case_si34_single_clafer_least_qualified_name_terminates :: Assertion
+case_si34_single_clafer_least_qualified_name_terminates = do
+    si34_assertTriples "single concrete clafer" "A\n" [("::A", "A", "c0_A")]
+    si34_assertTriples "single clafer with cardinality" "A 2\n" [("::A", "A", "c0_A")]
+    si34_assertTriples "single reference clafer" "x -> integer\n" [("::x", "x", "c0_x")]
+    si34_assertTriples "single clafer with a constraint" "A\n[ #A = 1 ]\n" [("::A", "A", "c0_A")]
+    (getLPQName (si34_qNameMaps "A\n") "c0_A" == Just "A") @? "the least-qualified name of the only clafer is its own name"
+
+-- multi-clafer modules keep their derivation: a nested child is unqualified
+-- when unique, and a plain name shared by two children stays qualified
+case_si34_multi_clafer_least_qualified_names_unchanged :: Assertion
+case_si34_multi_clafer_least_qualified_names_unchanged = do
+    si34_assertTriples "single top-level clafer with a child" "A\n    B\n"
+        [("::A", "A", "c0_A"), ("::A::B", "B", "c0_B")]
+    si34_assertTriples "two top-level clafers" "A\nB\n"
+        [("::A", "A", "c0_A"), ("::B", "B", "c0_B")]
+    si34_assertTriples "a plain name shared by two children" "A\n    B\nC\n    B\n"
+        [("::A", "A", "c0_A"), ("::A::B", "A::B", "c0_B"), ("::C", "C", "c0_C"), ("::C::B", "C::B", "c1_B")]
+    -- a plain name that prefixes another clafer's name is over-qualified by
+    -- the character-wise prefix search (Sigil-Logic/clafer#38 tracks the
+    -- fix); pinned here as unchanged by #34, to be updated by #38
+    si34_assertTriples "a plain name prefixing another clafer's name (Sigil-Logic/clafer#38)" "A\nAB\n"
+        [("::A", "::A", "c0_A"), ("::AB", "AB", "c0_AB")]
 
 case_FQMapLookup :: Assertion
 case_FQMapLookup = do

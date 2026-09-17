@@ -358,11 +358,19 @@ validateChocoEmission:
 # The console-output probe captures the streams separately to pin the
 # notice to stderr -- under -o, stdout carries the generated artifact
 # itself and must stay uncontaminated (PR #26 Codex Cycle 1).
+# The --meta-data probe (Sigil-Logic/clafer#34) compiles a
+# single-top-level-clafer model under timeout(1): the least-qualified-name
+# derivation used to loop forever on such a model, which neither the
+# generation sweep (no --meta-data) nor the multi-clafer corpora caught.
 CLI_CLAFER = "$(CURDIR)/../clafer" -s -k "--tooldir=$(CURDIR)/.."
+# GNU coreutils timeout(1) for the --meta-data probe (Sigil-Logic/clafer#34):
+# a recurrence of the qualified-name derivation loop must fail the leg,
+# not hang it.  macOS: `brew install coreutils` (also provides gtimeout).
+TIMEOUT := $(shell command -v timeout 2>/dev/null || command -v gtimeout 2>/dev/null)
 
 validateCliGating:
 	@echo "=================================================================="
-	@echo "| Testing CLI gating semantics (Sigil-Logic/clafer#20, #25)      |"
+	@echo "| Testing CLI gating semantics (Sigil-Logic/clafer#20, #25, #34) |"
 	@echo "=================================================================="
 	@tmp=$$(mktemp -d); \
 	status=0; \
@@ -397,8 +405,15 @@ validateCliGating:
 		echo "[FAIL] missing dot: advisory notice contaminates stdout"; status=1; \
 	elif ! printf '%s\n' "$$out" | grep -q "digraph"; then \
 		echo "[FAIL] missing dot: -o stdout must still carry generated output"; status=1; fi; \
+	printf 'A\n' > "$$tmp/si34-single.cfr"; \
+	if [ -z "$(TIMEOUT)" ]; then \
+		echo "[ERROR] --meta-data probe needs timeout(1) from GNU coreutils (brew install coreutils)"; status=1; \
+	elif ! (cd "$$tmp" && $(TIMEOUT) 60 $(CLI_CLAFER) --meta-data -m=alloy si34-single.cfr >/dev/null 2>&1); then \
+		echo "[FAIL] --meta-data on a single-top-level-clafer model must terminate with exit 0 (Sigil-Logic/clafer#34)"; status=1; \
+	elif ! grep -q '"lpqName":"A"' "$$tmp/si34-single.cfr-map"; then \
+		echo "[FAIL] --meta-data: the .cfr-map must carry the single clafer's least-qualified name"; status=1; fi; \
 	rm -rf "$$tmp"; \
-	if [ $$status -eq 0 ]; then echo "CLI gating: 7 probes passed."; fi; \
+	if [ $$status -eq 0 ]; then echo "CLI gating: 8 probes passed."; fi; \
 	[ $$status -eq 0 ]
 
 # Default-flag output validation (Sigil-Logic/clafer#15).  Everything
