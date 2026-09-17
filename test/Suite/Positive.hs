@@ -242,6 +242,7 @@ case_integer_set_algebra_matrix =
           , ("F ** C", "x -> 1 ** (integer -- 0)",              "$in(joinRef($this()), diff(constant(1), constant(0)))")
           , ("C ** C", "x -> (integer -- 0) ** (integer -- 1)", "notIn(joinRef($this()), union(constant(0), constant(1)))")
           , ("U ** C", "x -> integer ** (integer -- 0)",        "notIn(joinRef($this()), constant(0))")
+          , ("F ** U", "x -> 1 ** integer",                     "$in(joinRef($this()), constant(1))")
           , ("C ** U", "x -> (integer -- 0) ** integer",        "notIn(joinRef($this()), constant(0))")
           , ("F -- F", "x -> (1 ++ 2) -- 2",                   "$in(joinRef($this()), diff(union(constant(1), constant(2)), constant(2)))")
           , ("U -- F", "x -> integer -- 0",                     "notIn(joinRef($this()), constant(0))")
@@ -254,7 +255,7 @@ case_integer_set_algebra_matrix =
 
 case_integer_universe_results_need_no_restriction :: Assertion
 case_integer_universe_results_need_no_restriction =
-    forM_ [ ("U ++ F", "x -> integer ++ 1"), ("F ++ U", "x -> 1 ++ integer")
+    forM_ [ ("U ++ F", "x -> integer ++ 1"), ("F ++ U", "x -> 1 ++ integer"), ("U ++ U", "x -> integer ++ integer")
           , ("U ++ C", "x -> integer ++ (integer -- 0)"), ("C ++ U", "x -> (integer -- 0) ++ integer") ] $ \(variant, decl) -> do
         let chocoCode = si18_choco (decl ++ "\n")
         ("c0_x.refToUnique(Int);\n" `isInfixOf` chocoCode && not ("c0_x.addConstraint" `isInfixOf` chocoCode))
