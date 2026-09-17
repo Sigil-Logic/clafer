@@ -75,12 +75,10 @@ a\n    b\nb\nc\n    d\n         b\nd\n    b
 model :: String
 model = "a\n    b\nb\nc\n    d\n         b\nd\n    b"
 
--- Sigil-Logic/clafer#34: deriving the least-qualified name of the only
--- clafer in a module looped forever (stripping the plain name yields the
--- empty name, whose prefix search matches every clafer, and one clafer is
--- never more than one), so `--meta-data` hung on any single-top-level-clafer
--- model.  A plain name is now the base case.  The derivation is forced
--- under a timeout so a recurrence fails the suite instead of hanging it.
+-- Sigil-Logic/clafer#34: the least-qualified-name derivation looped forever
+-- on a single-clafer module (`--meta-data` hung); a plain name is now the
+-- base case.  The derivation is forced under a timeout so a recurrence
+-- fails the suite instead of hanging it.
 si34_qNameMaps :: String -> QNameMaps
 si34_qNameMaps model' =
     case cIr $ claferEnv $ fromJust $ Map.lookup Alloy $ fromRight $ compileOneFragment defaultClaferArgs model' of
@@ -104,8 +102,9 @@ case_si34_single_clafer_least_qualified_name_terminates = do
     si34_assertTriples "single clafer with a constraint" "A\n[ #A = 1 ]\n" [("::A", "A", "c0_A")]
     (getLPQName (si34_qNameMaps "A\n") "c0_A" == Just "A") @? "the least-qualified name of the only clafer is its own name"
 
--- multi-clafer modules keep their derivation: a nested child is unqualified
--- when unique, and a plain name shared by two children stays qualified
+-- multi-clafer modules: a nested child is unqualified when unique, a plain
+-- name shared by two children stays qualified, and a plain name that merely
+-- prefixes another clafer's name is unique (Sigil-Logic/clafer#38)
 case_si34_multi_clafer_least_qualified_names_unchanged :: Assertion
 case_si34_multi_clafer_least_qualified_names_unchanged = do
     si34_assertTriples "single top-level clafer with a child" "A\n    B\n"
@@ -114,11 +113,8 @@ case_si34_multi_clafer_least_qualified_names_unchanged = do
         [("::A", "A", "c0_A"), ("::B", "B", "c0_B")]
     si34_assertTriples "a plain name shared by two children" "A\n    B\nC\n    B\n"
         [("::A", "A", "c0_A"), ("::A::B", "A::B", "c0_B"), ("::C", "C", "c0_C"), ("::C::B", "C::B", "c1_B")]
-    -- a plain name that prefixes another clafer's name is over-qualified by
-    -- the character-wise prefix search (Sigil-Logic/clafer#38 tracks the
-    -- fix); pinned here as unchanged by #34, to be updated by #38
     si34_assertTriples "a plain name prefixing another clafer's name (Sigil-Logic/clafer#38)" "A\nAB\n"
-        [("::A", "::A", "c0_A"), ("::AB", "AB", "c0_AB")]
+        [("::A", "A", "c0_A"), ("::AB", "AB", "c0_AB")]
 
 case_FQMapLookup :: Assertion
 case_FQMapLookup = do
@@ -145,6 +141,28 @@ case_FQMapLookup = do
     null (getUIDs qNameMaps "x") @? "UID for `x` different from []"
     null (getUIDs qNameMaps "::x") @? "UID for `::x` different from []"
     null (getUIDs qNameMaps "bb") @? "UID for `bb` different from []"
+
+-- Sigil-Logic/clafer#38: a partially qualified name matches whole segments
+-- only.  The search used to be character-wise over the reversed keys, so
+-- `a` also matched `ab` and `b` matched `bb`; `a` was then judged ambiguous
+-- and over-qualified to `::a` in the .cfr-map, and a `.cfr-scope` entry or a
+-- claferIG command naming `a` reached `ab` as well.
+si38_model :: String
+si38_model = "a\n    b\n    bb\nab\nb\n"
+
+case_si38_partially_qualified_names_match_whole_segments :: Assertion
+case_si38_partially_qualified_names_match_whole_segments = do
+    let qNameMaps = si34_qNameMaps si38_model
+    [ "c0_a" ] == getUIDs qNameMaps "a" @? "`a` must not match `ab`"
+    [ "c0_ab" ] == getUIDs qNameMaps "ab" @? "`ab` must match only itself"
+    [ "c1_b", "c0_b" ] == getUIDs qNameMaps "b" @? "`b` must match `::b` and `::a::b` (ascending reversed-key order) but not `bb`"
+    [ "c0_bb" ] == getUIDs qNameMaps "bb" @? "`bb` must match only itself"
+    [ "c0_b" ] == getUIDs qNameMaps "a::b" @? "`a::b` must not match `a::bb`"
+    [ "c0_bb" ] == getUIDs qNameMaps "a::bb" @? "`a::bb` must match only itself"
+    [ "c0_a", "c0_ab", "c1_b", "c0_b", "c0_bb" ] == getUIDs qNameMaps "" @? "the empty name must still match every clafer in ascending reversed-key order"
+    null (getUIDs qNameMaps "x") @? "`x` must match nothing"
+    si34_assertTriples "least-qualified names" si38_model
+        [ ("::a", "a", "c0_a"), ("::ab", "ab", "c0_ab"), ("::a::b", "a::b", "c0_b"), ("::a::bb", "bb", "c0_bb"), ("::b", "::b", "c1_b") ]
     null (getUIDs qNameMaps "x::b") @? "UID for `x::b` different from []"
     null (getUIDs qNameMaps "e") @? "UID for `e` different from []"
 
