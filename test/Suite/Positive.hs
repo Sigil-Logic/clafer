@@ -737,3 +737,90 @@ case_si33_rejection_precedes_navigation_and_survives_skip_resolver = do
     forM_ [Alloy, Choco, Html, Graph, CVLGraph, JSON] $ \m ->
         si33_assertRejected ("mode " ++ show m) defaultClaferArgs{mode = [m]}
             "x -> (1 / 0)\n" (Pos 1 7) "'/' divides by zero"
+
+-- Sigil-Logic/clafer#36: the HTML and Graph printers restore the parentheses
+-- the parser consumed.  `Html.printExp` parenthesizes a sub-expression
+-- exactly when the grammar level of its own production is below the level
+-- its position admits, and the Graph generator renders its labels and
+-- tooltips through the same printer (`Html.genTooltip`), so one model pins
+-- both: a constraint nested under a concrete clafer is rendered in the HTML
+-- view and in the clafer's Graph tooltip (which carries nested constraints
+-- only).  Each generator escapes the text its own way -- the HTML printer
+-- emits entities for `< > && || / %` and the Graph generator escapes `&`
+-- and `->` in the tooltip -- so the expectations are stated as source text
+-- and encoded per generator here.
+
+si36_results :: String -> Map.Map ClaferMode CompilerResult
+si36_results model = fromRight $ compileOneFragment defaultClaferArgs{mode = [Html, Graph]} model
+
+-- the HTML view with its tags removed, and the Graph output as is
+si36_htmlText, si36_graph :: String -> String
+si36_htmlText model = stripTags $ outputCode $ fromJust $ Map.lookup Html $ si36_results model
+  where
+    stripTags ('<':rest) = stripTags $ drop 1 $ dropWhile (/= '>') rest
+    stripTags (c:rest)   = c : stripTags rest
+    stripTags []         = []
+si36_graph model = outputCode $ fromJust $ Map.lookup Graph $ si36_results model
+
+-- the constraint nested under a clafer with an integer reference `a`
+si36_model :: String -> String
+si36_model constraint = "A\n    a -> integer\n    [ " ++ constraint ++ " ]\n"
+
+-- the entities the HTML printer emits for the operators used below
+si36_htmlEncode :: String -> String
+si36_htmlEncode ('&':'&':rest) = "&amp;&amp;" ++ si36_htmlEncode rest
+si36_htmlEncode ('|':'|':rest) = "&#124;&#124;" ++ si36_htmlEncode rest
+si36_htmlEncode ('<':rest)     = "&lt;" ++ si36_htmlEncode rest
+si36_htmlEncode ('>':rest)     = "&gt;" ++ si36_htmlEncode rest
+si36_htmlEncode ('/':rest)     = "&#47;" ++ si36_htmlEncode rest
+si36_htmlEncode ('%':rest)     = "&#37;" ++ si36_htmlEncode rest
+si36_htmlEncode (c:rest)       = c : si36_htmlEncode rest
+si36_htmlEncode []             = []
+
+-- the escaping the Graph generator applies to a tooltip (`Graph.htmlChars`)
+si36_graphEncode :: String -> String
+si36_graphEncode ('&':rest)     = "&amp;" ++ si36_graphEncode rest
+si36_graphEncode ('-':'>':rest) = "-&gt;" ++ si36_graphEncode rest
+si36_graphEncode (c:rest)       = c : si36_graphEncode rest
+si36_graphEncode []             = []
+
+-- the constraint renders as `expected` in both generators, and the lossy
+-- master rendering `lossy` (when given) appears in neither
+si36_assertRenders :: String -> String -> String -> Maybe String -> Assertion
+si36_assertRenders variant constraint expected lossy = do
+    let model    = si36_model constraint
+        htmlText = si36_htmlText model
+        dotCode  = si36_graph model
+    si29_assertContains ("HTML, " ++ variant) ("[ " ++ si36_htmlEncode expected ++ " ]") htmlText
+    si29_assertContains ("Graph, " ++ variant) ("[ " ++ si36_graphEncode expected ++ " ]") dotCode
+    forM_ lossy $ \lossyText -> do
+        (not $ si36_htmlEncode lossyText `isInfixOf` htmlText)
+            @? ("HTML, " ++ variant ++ ": the lossy rendering `" ++ lossyText ++ "` must be gone:\n" ++ htmlText)
+        (not $ si36_graphEncode lossyText `isInfixOf` dotCode)
+            @? ("Graph, " ++ variant ++ ": the lossy rendering `" ++ lossyText ++ "` must be gone:\n" ++ dotCode)
+
+case_si36_html_and_graph_restore_the_parentheses_of_the_reproducer :: Assertion
+case_si36_html_and_graph_restore_the_parentheses_of_the_reproducer =
+    si36_assertRenders "reproducer" "a = (1 - 2) * 3" "a = (1 - 2) * 3" (Just "a = 1 - 2 * 3")
+
+case_si36_html_and_graph_restore_the_parentheses_under_unary_minus :: Assertion
+case_si36_html_and_graph_restore_the_parentheses_under_unary_minus =
+    si36_assertRenders "unary minus over a parenthesized sum" "a = -(2 + 1)" "a = -(2 + 1)" (Just "a = -2 + 1")
+
+-- One shape per operator family, and the shapes that must NOT gain
+-- parentheses: a same-level left operand of a left-associative operator, a
+-- unary operator whose operand's level is at or above the one it admits
+-- (`!` admits an Exp11, so a comparison under it stays bare), and source
+-- parentheses precedence does not need.
+case_si36_parentheses_follow_the_grammar_levels :: Assertion
+case_si36_parentheses_follow_the_grammar_levels =
+    forM_ [ ("same-level right operand of -", "a = 1 - (2 - 3)", "a = 1 - (2 - 3)", Just "a = 1 - 2 - 3")
+          , ("same-level left operand of - stays bare", "a = (1 - 2) - 3", "a = 1 - 2 - 3", Nothing)
+          , ("lower-level operand of / under unary minus", "a = -(1 + 2) / 3", "a = -(1 + 2) / 3", Just "a = -1 + 2 / 3")
+          , ("set union under difference", "a in ((-1) ++ 1) -- 1", "a in ((-1)++1)--1", Just "a in -1++1--1")
+          , ("disjunction under &&", "(a = 1 || a = 2) && a != 2", "(a = 1 || a = 2) && a != 2", Just "a = 1 || a = 2 && a != 2")
+          , ("negated conjunction", "!(a = 1 && a = 2)", " ! (a = 1 && a = 2)", Just " ! a = 1 && a = 2")
+          , ("negated comparison stays bare", "!(a = 4)", " ! a = 4", Nothing)
+          , ("implication as the right operand of =>", "a = 1 => (a = 2 => a = 3)", "a = 1 => (a = 2 => a = 3)", Just "a = 1 => a = 2 => a = 3")
+          , ("redundant parentheses are not restored", "(a + 1) = 2", "a + 1 = 2", Nothing)
+          ] $ \(variant, constraint, expected, lossy) -> si36_assertRenders variant constraint expected lossy
