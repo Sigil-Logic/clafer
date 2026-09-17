@@ -23,7 +23,7 @@
 module Language.Clafer.Common where
 
 import           Control.Applicative
-import           Control.Lens (transformOf, universeOn)
+import           Control.Lens (transformOf, universeOf, universeOn)
 import           Data.Char
 import           Data.Data.Lens (biplate, uniplate)
 import           Data.List
@@ -86,14 +86,21 @@ getRefIds (PExp _ _ _ (IDouble _)) = [doubleType]
 getRefIds (PExp _ _ _ (IReal _)) = [realType]
 getRefIds (PExp _ _ _ (IStr _)) = [stringType]
 getRefIds (PExp _ _ _ (IDeclPExp{_quant = ISome})) = []
--- Sigil-Logic/clafer#31: a parenthesized negative literal `x -> (-1)` is
--- unary minus over the literal (the grammar has no negative literals), so
--- the target's type is the literal's.  Unary minus over anything else --
--- a set or arithmetic expression -- stays the loud invariant below.
-getRefIds pexp'@(PExp _ _ _ (IFunExp{_op="-", _exps = [_]}))
-  | isNumericLiteral (_exp folded) = getRefIds folded
+-- Sigil-Logic/clafer#31 and #33: arithmetic in a reference target is
+-- admitted only when it is closed integer arithmetic that folds to a
+-- literal -- `x -> (-1)` is unary minus over the literal (the grammar has
+-- no negative literals) and `x -> (1 - 2)` is the literal -1 -- so the
+-- target's type is the folded literal's.  Arithmetic that does not fold
+-- (a clafer operand, unary minus over a set expression, arithmetic over
+-- real literals, division by zero) is rejected with a positioned error
+-- before any consumer of a reference target runs
+-- ('Language.Clafer.Intermediate.ResolverInheritance.rejectUnfoldableReferenceTargets',
+-- which locates the offending node with 'residualArithmetic'), so reaching
+-- the invariant below with it is a pass-ordering bug, not a model error.
+getRefIds pexp'@(PExp _ _ _ (IFunExp{_op = op', _exps = exps'}))
+  | isArithmeticApp op' exps', isNumericLiteral (_exp folded) = getRefIds folded
   where
-    folded = foldNegativeLiterals pexp'
+    folded = foldLiteralArithmetic pexp'
 getRefIds pexp' = error $ "[Bug] Commmon.getRefIds called on unexpected argument '" ++ show pexp' ++ "'"
 
 isNumericLiteral :: IExp -> Bool
@@ -105,11 +112,12 @@ isNumericLiteral _         = False
 -- | Folds unary minus over a numeric literal into the negative literal,
 -- one node at a time: @(-1)@ parses as 'IFunExp' @"-"@ over 'IInt' @1@,
 -- which becomes 'IInt' @(-1)@; any other expression is returned unchanged.
--- Shared by every consumer of a reference target -- 'getRefIds', the Alloy
--- declaration renderers (static, "Language.Clafer.Generator.Alloy", and
--- temporal, "Language.Clafer.Generator.AlloyLtl"), and the Choco classifier
--- and constraint printer -- so they agree on the literal
--- (Sigil-Logic/clafer#31).
+-- Shared, through 'foldLiteralArithmetic', by every consumer of a reference
+-- target -- 'getRefIds', the Alloy declaration renderers (static,
+-- "Language.Clafer.Generator.Alloy", and temporal,
+-- "Language.Clafer.Generator.AlloyLtl"), and the Choco classifier -- and
+-- applied on its own by the Choco constraint printer, so they agree on the
+-- literal (Sigil-Logic/clafer#31).
 negateLiteral :: PExp -> PExp
 negateLiteral pexp'@PExp{_exp = IFunExp{_op = "-", _exps = [PExp{_exp = operand}]}} = case operand of
   IInt    k -> pexp'{_exp = IInt    (negate k)}
@@ -118,11 +126,64 @@ negateLiteral pexp'@PExp{_exp = IFunExp{_op = "-", _exps = [PExp{_exp = operand}
   _         -> pexp'
 negateLiteral pexp' = pexp'
 
--- | 'negateLiteral' applied bottom-up over a whole expression: a literal
--- nested in a set expression, @(-1) ++ 1@, folds in place, and a doubly
--- negated literal, @(-(-1))@, folds to @1@.
-foldNegativeLiterals :: PExp -> PExp
-foldNegativeLiterals = transformOf uniplate negateLiteral
+-- | Folds one closed arithmetic node over two integer literals into the
+-- literal it denotes: @(1 - 2)@ parses as 'IFunExp' @"-"@ over 'IInt' @1@
+-- and 'IInt' @2@ and becomes 'IInt' @(-1)@ (Sigil-Logic/clafer#33); the
+-- five operators of 'arithBinOps' are covered.  Division and remainder
+-- truncate toward zero ('quot' and 'rem'), which is what both validators
+-- compute for the same operands -- Alloy 6.2.0's @util/integer@ @div@ and
+-- @rem@, and chocosolver's @div@ and @mod@, give @(-7) / 2 = -3@ and
+-- @(-7) % 2 = -1@ (checked against both jars) -- so a folded target
+-- denotes the value a constraint over the same expression evaluates to.
+-- Division by zero is not folded: the node is returned unchanged and the
+-- resolver rejects it.  Any other expression, including arithmetic over
+-- real literals, is returned unchanged.
+foldArithmeticLiteral :: PExp -> PExp
+foldArithmeticLiteral pexp'@PExp{_exp = IFunExp{_op = op', _exps = [PExp{_exp = IInt a}, PExp{_exp = IInt b}]}}
+  | op' == iPlus = literal (a + b)
+  | op' == iSub  = literal (a - b)
+  | op' == iMul  = literal (a * b)
+  | op' == iDiv, b /= 0 = literal (a `quot` b)
+  | op' == iRem, b /= 0 = literal (a `rem` b)
+  where
+    literal k = pexp'{_exp = IInt k}
+foldArithmeticLiteral pexp' = pexp'
+
+-- | 'negateLiteral' and 'foldArithmeticLiteral' applied bottom-up over a
+-- whole expression, so nested and negated forms fold too: a literal nested
+-- in a set expression, @(-1) ++ 1@ or @(1 - 2) ++ 1@, folds in place, a
+-- doubly negated literal, @(-(-1))@, folds to @1@, and @((1 - 2) * (-(2 +
+-- 1)))@ folds to @3@.  Shared by every consumer of a reference target and
+-- by the resolver's rejection of what it leaves behind
+-- ('residualArithmetic').
+foldLiteralArithmetic :: PExp -> PExp
+foldLiteralArithmetic = transformOf uniplate (foldArithmeticLiteral . negateLiteral)
+
+-- | Whether an operator application is arithmetic: unary minus over one
+-- operand, or one of the five 'arithBinOps' over two.
+isArithmeticApp :: String -> [PExp] -> Bool
+isArithmeticApp op' exps' = case exps' of
+  [_]    -> op' == iSub
+  [_, _] -> op' `elem` arithBinOps
+  _      -> False
+
+-- | The innermost arithmetic node that 'foldLiteralArithmetic' leaves in a
+-- reference target, if any: unary minus over something other than a
+-- numeric literal, a binary operator whose operands are not both integer
+-- literals (a clafer, a set expression, a real literal), or a division by
+-- zero.  Innermost, so the position and operator reported name the
+-- sub-expression that fails to fold rather than the whole target: in
+-- @((1 / 0) + 2)@ it is @1 / 0@.  'Nothing' means the target is free of
+-- arithmetic once folded and every consumer can take it.
+residualArithmetic :: PExp -> Maybe PExp
+residualArithmetic target = listToMaybe
+  [ node
+  | node <- universeOf uniplate $ foldLiteralArithmetic target
+  , isArithmeticNode node
+  , not $ any isArithmeticNode $ drop 1 $ universeOf uniplate node ]
+  where
+    isArithmeticNode PExp{_exp = IFunExp{_op = op', _exps = exps'}} = isArithmeticApp op' exps'
+    isArithmeticNode _ = False
 
 isEqClaferId :: String -> IClafer -> Bool
 isEqClaferId    uid'      claf'    = _uid claf' == uid'

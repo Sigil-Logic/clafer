@@ -1,0 +1,52 @@
+open util/integer
+pred show {}
+run show for 1
+
+one sig c0_negOne
+{ c0_negOne_ref : one -1 }
+
+assert assertOnLine_22 { (c0_negOne.@c0_negOne_ref) = (-1.mul[1]) }
+check assertOnLine_22 for 1
+
+one sig c0_five
+{ c0_five_ref : one 5 }
+
+assert assertOnLine_25 { (c0_five.@c0_five_ref) = (2.plus[3]) }
+check assertOnLine_25 for 1
+
+one sig c0_six
+{ c0_six_ref : one 6 }
+
+assert assertOnLine_28 { (c0_six.@c0_six_ref) = (2.mul[3]) }
+check assertOnLine_28 for 1
+
+one sig c0_truncQuot
+{ c0_truncQuot_ref : one -3 }
+
+assert assertOnLine_33 { (c0_truncQuot.@c0_truncQuot_ref) = ((-1.mul[7]).div[2]) }
+check assertOnLine_33 for 1
+
+assert assertOnLine_34 { (c0_truncQuot.@c0_truncQuot_ref) = (-1.mul[3]) }
+check assertOnLine_34 for 1
+
+one sig c0_truncRem
+{ c0_truncRem_ref : one -1 }
+
+assert assertOnLine_37 { (c0_truncRem.@c0_truncRem_ref) = ((-1.mul[7]).rem[2]) }
+check assertOnLine_37 for 1
+
+assert assertOnLine_38 { (c0_truncRem.@c0_truncRem_ref) = (-1.mul[1]) }
+check assertOnLine_38 for 1
+
+one sig c0_nested
+{ c0_nested_ref : one 3 }
+
+assert assertOnLine_42 { (c0_nested.@c0_nested_ref) = 3 }
+check assertOnLine_42 for 1
+
+one sig c0_inSet
+{ c0_inSet_ref : one -1 + 5 }
+
+assert assertOnLine_47 { ((c0_inSet.@c0_inSet_ref) = (-1.mul[1])) || ((c0_inSet.@c0_inSet_ref) = 5) }
+check assertOnLine_47 for 1
+

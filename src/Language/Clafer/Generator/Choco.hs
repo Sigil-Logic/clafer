@@ -83,12 +83,15 @@ isPlainRefTarget _ = False
 -- | Classifies a reference target that is not plain, given a renderer
 -- for its clafer-typed sub-expressions (the generator's constraint
 -- printer; the support check passes a dummy).  Left carries the reason
--- the Choco backend cannot express the target.  Negative literals are
--- folded first (`x -> (-1)` is unary minus over the literal in the IR,
--- Sigil-Logic/clafer#31), so they take the literal case below and emit
--- `constant(-1)` -- the same fold the constraint printer applies.
+-- the Choco backend cannot express the target.  Closed literal arithmetic
+-- is folded first (`x -> (-1)` is unary minus over the literal in the IR,
+-- Sigil-Logic/clafer#31; `x -> (1 - 2)` is the literal -1, #33), so it
+-- takes the literal case below and emits `constant(-1)`; the constraint
+-- printer applies the same fold of unary minus.  Arithmetic that does not
+-- fold never reaches here -- the resolver rejects it -- so the fallback
+-- case is not its decline path.
 classifyRefTarget :: (PExp -> String) -> PExp -> Either String RefTargetSet
-classifyRefTarget render = go . foldNegativeLiterals
+classifyRefTarget render = go . foldLiteralArithmetic
   where
     go p@PExp{_exp = IClaferId{_sident}}
       | _sident `elem` [integerType, intType] = Right $ IntSet IntUniverse

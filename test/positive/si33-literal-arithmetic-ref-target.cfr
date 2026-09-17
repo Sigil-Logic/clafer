@@ -1,0 +1,47 @@
+// Sigil-Logic/clafer#33: closed integer arithmetic as a reference target.
+// `negOne -> (1 - 2)` is the binary operator over two literals in the IR (a
+// reference target is parsed above the arithmetic levels, so only the
+// parentheses reach them), which Common.getRefIds had no case for, so every
+// output mode crashed before any backend ran.  The expression now folds to
+// the literal it denotes wherever a reference target is consumed -- the five
+// operators `+ - * / %` over two integer literals, bottom-up, so nested and
+// negated forms fold too -- and both backends land on the #31 literal
+// encodings: Alloy declares the bare literal (`one -1`), Choco emits
+// `constant(-1)` on the #18 encoding.  Division and remainder truncate
+// toward zero, which is what Alloy 6.2.0 (`div`, `rem`) and chocosolver
+// (`div`, `mod`) compute, so the assertions comparing each folded
+// declaration with the validator's own evaluation of the same expression
+// hold: the gated Choco leg solves them on every run, and the .als was
+// executed with `alloy exec` when this model was added (every check UNSAT).
+// Facts keep the general rendering of the operators, so the constraint side
+// of the corpus is unchanged.  Arithmetic that does not fold -- a clafer
+// operand, unary minus over a set expression, real literals, division by
+// zero -- is a positioned compile error instead (test/negative/si33-*).
+
+negOne -> (1 - 2)
+assert [ negOne = 1 - 2 ]
+
+five -> (2 + 3)
+assert [ five = 2 + 3 ]
+
+six -> (2 * 3)
+assert [ six = 2 * 3 ]
+
+// a negative dividend: truncation toward zero gives -3 and -1, not the
+// floored -4 and 1
+truncQuot -> ((-7) / 2)
+assert [ truncQuot = (-7) / 2 ]
+assert [ truncQuot = -3 ]
+
+truncRem -> ((-7) % 2)
+assert [ truncRem = (-7) % 2 ]
+assert [ truncRem = -1 ]
+
+// nested and negated forms fold bottom-up: (-1) * (-3)
+nested -> ((1 - 2) * (-(2 + 1)))
+assert [ nested = 3 ]
+
+// inside a set expression: each operand folds in place, then the set
+// operator renders around the literals
+inSet -> (1 - 2) ++ (2 + 3)
+assert [ inSet = -1 || inSet = 5 ]

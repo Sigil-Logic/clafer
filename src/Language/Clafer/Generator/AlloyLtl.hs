@@ -281,12 +281,13 @@ genMutAlloyRel :: String -> String -> String
 genMutAlloyRel name rType = concat [name, " : ", rType, " -> ", stateSig]
 
 -- | The type of a reference in declaration position.  As in the static
--- generator (Sigil-Logic/clafer#31), a negative literal in the target is
--- folded to the literal first: `x -> (-1)` would otherwise render through
--- the general unary-minus form `-1.mul[1]`, which Alloy 6.2.0 rejects in a
--- declaration, whereas the bare `-1` is accepted (HOARDE Codex, PR #35).
+-- generator (Sigil-Logic/clafer#31, #33), closed literal arithmetic in the
+-- target is folded to the literal first: `x -> (-1)` and `x -> (1 - 2)`
+-- would otherwise render through the `util/integer` call forms (`-1.mul[1]`,
+-- `1.minus[2]`), which Alloy 6.2.0 rejects in a declaration, whereas the
+-- bare `-1` is accepted (HOARDE Codex, PR #35).
 refType :: GenEnv -> IClafer -> Concat
-refType    genEnv c = fromMaybe (CString "") (((genType genEnv c) . foldNegativeLiterals . getTarget) <$> (_ref <$> _reference c))
+refType    genEnv c = fromMaybe (CString "") (((genType genEnv c) . foldLiteralArithmetic . getTarget) <$> (_ref <$> _reference c))
 
 getTarget :: PExp -> PExp
 getTarget    x     = case x of

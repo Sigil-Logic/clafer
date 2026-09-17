@@ -1,0 +1,4 @@
+// Sigil-Logic/clafer#33: only integer literals fold; arithmetic over real
+// literals is rejected with a positioned semantic error (a folded real would
+// only be declined as a reference to a real by both backends anyway).
+x -> (1.5 + 1.5)
