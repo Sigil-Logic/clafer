@@ -298,9 +298,11 @@ validateCliGating:
 # chocosolver -v exits 0 on a dangling name (it prints "Unhandled
 # compilation error ... ReferenceError" and carries on;
 # Sigil-Logic/chocosolver#8), so the Choco check gates on the output
-# text as well as the exit status until a fixed jar is re-pinned.  The
-# scratch directory is removed by an EXIT/HUP/INT/TERM trap, so an
-# interrupted run leaks nothing (PR #28 HOARDE Codex Cycle 1).
+# text as well as the exit status until a fixed jar is re-pinned --
+# chocosolver#8 carries the follow-through item to drop that text gate
+# here once CHOCOSOLVER_COMMIT is bumped to a fixed build.  The scratch
+# directory is removed by an EXIT/HUP/INT/TERM trap, so an interrupted
+# run leaks nothing (PR #28 HOARDE Codex Cycle 1).
 CLI_CLAFER_DEFAULT = "$(CURDIR)/../clafer" -s "--tooldir=$(CURDIR)/.."
 DEFAULT_FLAG_MODELS = i235.cfr gi84-parent-top-level-abstract.cfr \
 	si15-ref-target-unused-abstract.cfr \
@@ -308,7 +310,7 @@ DEFAULT_FLAG_MODELS = i235.cfr gi84-parent-top-level-abstract.cfr \
 
 validateDefaultFlagOutput:
 	@echo "=================================================================="
-	@echo "| Testing default-flag output, no -k (Sigil-Logic/clafer#15)     |"
+	@echo "| Testing default-flag output, no -k (see Sigil-Logic/clafer#15) |"
 	@echo "=================================================================="
 	@if test ! -f "$(ALLOY_JAR)"; then \
 		echo "[ERROR] Missing $(ALLOY_JAR)."; false; \
