@@ -285,6 +285,55 @@ case_string_ref_targets_are_encoded =
              "c0_tag.refToUnique(string);\nc0_tag.addConstraint(or(equal(joinRef($this()), constant(\"\\\"a\\\"\")), equal(joinRef($this()), constant(\"\\\"b\\\"\"))));\n")
           ] $ \(variant, decl, expected) -> si18_assertEncoding variant decl expected
 
+-- The same finite (F) / co-finite (C) / universe (U) algebra over string
+-- literal lists (Sigil-Logic/clafer#18, post-cycle scope addition agreed
+-- with Frank Zeyda on 2026-09-16): a co-finite string set is a conjunction
+-- of inequalities, the complement of the enumeration's disjunction.
+case_string_set_algebra_matrix :: Assertion
+case_string_set_algebra_matrix =
+    forM_ [ ("F ++ F", "s -> \"a\" ++ \"b\"", "or(equal(joinRef($this()), constant(\"\\\"a\\\"\")), equal(joinRef($this()), constant(\"\\\"b\\\"\")))")
+          , ("C ++ F", "s -> (string -- \"a\") ++ \"b\"", "notEqual(joinRef($this()), constant(\"\\\"a\\\"\"))")
+          , ("F ** F", "s -> (\"a\" ++ \"b\") ** \"b\"", "equal(joinRef($this()), constant(\"\\\"b\\\"\"))")
+          , ("C ** F", "s -> (string -- \"a\") ** \"b\"", "equal(joinRef($this()), constant(\"\\\"b\\\"\"))")
+          , ("F ** C", "s -> \"a\" ** (string -- \"b\")", "equal(joinRef($this()), constant(\"\\\"a\\\"\"))")
+          , ("C ** C", "s -> (string -- \"a\") ** (string -- \"b\")", "and(notEqual(joinRef($this()), constant(\"\\\"a\\\"\")), notEqual(joinRef($this()), constant(\"\\\"b\\\"\")))")
+          , ("U ** C", "s -> string ** (string -- \"a\")", "notEqual(joinRef($this()), constant(\"\\\"a\\\"\"))")
+          , ("C ** U", "s -> (string -- \"a\") ** string", "notEqual(joinRef($this()), constant(\"\\\"a\\\"\"))")
+          , ("F -- F", "s -> (\"a\" ++ \"b\") -- \"b\"", "equal(joinRef($this()), constant(\"\\\"a\\\"\"))")
+          , ("U -- F", "s -> string -- \"a\"", "notEqual(joinRef($this()), constant(\"\\\"a\\\"\"))")
+          , ("U -- F -- F", "s -> string -- \"a\" -- \"b\"", "and(notEqual(joinRef($this()), constant(\"\\\"a\\\"\")), notEqual(joinRef($this()), constant(\"\\\"b\\\"\")))")
+          , ("U -- C", "s -> string -- (string -- \"a\")", "equal(joinRef($this()), constant(\"\\\"a\\\"\"))")
+          , ("C -- F", "s -> (string -- \"a\") -- \"b\"", "and(notEqual(joinRef($this()), constant(\"\\\"a\\\"\")), notEqual(joinRef($this()), constant(\"\\\"b\\\"\")))")
+          , ("F -- C", "s -> \"a\" -- (string -- \"a\")", "equal(joinRef($this()), constant(\"\\\"a\\\"\"))")
+          , ("C -- C", "s -> (string -- \"a\") -- (string -- \"b\")", "equal(joinRef($this()), constant(\"\\\"b\\\"\"))")
+          ] $ \(variant, decl, restriction) ->
+        si18_assertEncoding variant (decl ++ "\n") ("c0_s.refToUnique(string);\nc0_s.addConstraint(" ++ restriction ++ ");\n")
+
+case_string_universe_results_need_no_restriction :: Assertion
+case_string_universe_results_need_no_restriction =
+    forM_ [ ("F ++ C", "s -> \"a\" ++ (string -- \"a\")")
+          , ("C ++ C (disjoint exclusions)", "s -> (string -- \"a\") ++ (string -- \"b\")")
+          , ("U ++ F", "s -> string ++ \"a\"")
+          , ("F ++ U", "s -> \"a\" ++ string")
+          , ("U ++ C", "s -> string ++ (string -- \"a\")")
+          , ("C ++ U", "s -> (string -- \"a\") ++ string") ] $ \(variant, decl) -> do
+        let chocoCode = si18_choco (decl ++ "\n")
+        ("c0_s.refToUnique(string);\n" `isInfixOf` chocoCode && not ("c0_s.addConstraint" `isInfixOf` chocoCode))
+            @? (variant ++ ": the result is the whole string domain and needs no restriction:\n" ++ chocoCode)
+
+case_empty_string_results_decline_choco_output :: Assertion
+case_empty_string_results_decline_choco_output =
+    -- (`"a" -- "a"`, `string ** string`, and `string -- string` are rejected by
+    -- the clafer type checker before any backend runs, so they are not here)
+    forM_ [ ("F -- U", "s -> \"a\" -- string")
+          , ("C -- U", "s -> (string -- \"a\") -- string")
+          , ("F ** F (disjoint)", "s -> \"a\" ** \"b\"")
+          , ("F -- C (subsumed)", "s -> \"a\" -- (string -- \"b\")") ] $ \(variant, decl) ->
+        case Map.lookup Choco (si18_results (decl ++ "\n")) of
+            Just NoCompilerResult{reason = why} -> ("c0_s" `isInfixOf` why && "empty set of strings" `isInfixOf` why)
+                @? (variant ++ ": the decline reason must name c0_s and the empty set, got: " ++ why)
+            other -> assertFailure (variant ++ ": an empty string set must decline Choco output, got: " ++ show other)
+
 case_plain_ref_targets_keep_the_pre_18_emission :: Assertion
 case_plain_ref_targets_keep_the_pre_18_emission =
     forM_ [ ("clafer", "likes -> Person\n", "c0_likes.refToUnique(c0_Person);\n")
@@ -300,7 +349,7 @@ case_plain_ref_targets_keep_the_pre_18_emission =
 case_unsupported_ref_targets_decline_choco_output :: Assertion
 case_unsupported_ref_targets_decline_choco_output =
     forM_ [ ("clafer/integer mix", "mixed -> Person ++ 1\n", "c0_mixed")
-          , ("string type in a set expression", "s -> string -- \"a\"\n", "c0_s")
+          , ("string/integer mix", "s -> \"a\" ++ 1\n", "c0_s")
           , ("empty integer set", "e -> 1 -- integer\n", "c0_e")
           ] $ \(variant, decl, uid) -> do
         let results = si18_results (si18_personModel ++ decl)

@@ -34,9 +34,11 @@ single -> 1
 notZeroOrOne -> integer -- 0 -- 1
 smallOrAny -> integer ** (1 ++ 2)
 
-// string literals and enumerations
+// string literals, enumerations, and co-finite sets
 name -> "Alice"
 tag -> "a", "b"
+notA -> string -- "a"
+notAB -> string -- "a" -- "b"
 
 assert [ Alice in friend.dref && Ella in friend.dref ]
 assert [ onlyAlice = Alice ]
@@ -49,3 +51,5 @@ assert [ notZeroOrOne != 0 && notZeroOrOne != 1 ]
 assert [ smallOrAny = 1 || smallOrAny = 2 ]
 assert [ name = "Alice" ]
 assert [ tag = "a" || tag = "b" ]
+assert [ notA != "a" ]
+assert [ notAB != "a" && notAB != "b" ]

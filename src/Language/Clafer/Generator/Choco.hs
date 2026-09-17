@@ -45,7 +45,7 @@ import Language.Clafer.Front.LexClafer
 data RefTargetSet
   = ClaferSet [UID] String   -- ^ candidate carrier UIDs, and the target as a JS set expression
   | IntSet IntRefSet         -- ^ a set of integers
-  | StrSet [String]          -- ^ a finite string enumeration (the literals)
+  | StrSet StrRefSet         -- ^ a set of strings
 
 -- | Sets of integers.  chocosolver has no expression for the integer
 -- domain (@global(Int)@ does not compile), so @integer@ and its
@@ -58,6 +58,19 @@ data IntRefSet
   = IntUniverse              -- ^ @integer@
   | IntFinite String         -- ^ a finite set: a JS set expression over @constant(k)@
   | IntCoFinite String       -- ^ @integer -- S@: the finite JS set expression S it excludes
+
+-- | Sets of strings.  chocosolver has no string-valued sets (a union
+-- of string constants is rejected), so a string restriction is a
+-- boolean formula over the referred value: a finite set is a
+-- disjunction of equalities, a co-finite one (@string -- "a"@) a
+-- conjunction of inequalities, and the universe needs none.  The
+-- literals are concrete at generation time, so the three set operators
+-- are folded over the literal lists themselves by the same
+-- finite / co-finite / universe identities as the integer case.
+data StrRefSet
+  = StrUniverse              -- ^ @string@
+  | StrFinite [String]       -- ^ the literals (non-empty)
+  | StrCoFinite [String]     -- ^ every string except the literals (non-empty)
 
 -- | A plain reference target: a clafer, or a join path (only the path's
 -- last clafer types the reference, as in the Alloy backend's refType).
@@ -76,6 +89,7 @@ classifyRefTarget render = go
   where
     go p@PExp{_exp = IClaferId{_sident}}
       | _sident `elem` [integerType, intType] = Right $ IntSet IntUniverse
+      | _sident == stringType = Right $ StrSet StrUniverse
       | isPrimitive _sident = Left $ "the " ++ _sident ++ " type inside a set expression"
       | otherwise           = Right $ ClaferSet [_sident] (render p)
     go p@PExp{_exp = IFunExp "." [_, r]} = case go r of
@@ -83,7 +97,7 @@ classifyRefTarget render = go
       Right _                  -> Left "a join whose target is not a clafer"
       Left why                 -> Left why
     go PExp{_exp = IInt k} = Right $ IntSet $ IntFinite $ "constant(" ++ show k ++ ")"
-    go PExp{_exp = IStr t} = Right $ StrSet [t]
+    go PExp{_exp = IStr t} = Right $ StrSet $ StrFinite [t]
     go PExp{_exp = IFunExp op' [a, b]}
       | op' `elem` ["++", "**", "--"] = do
           a' <- go a
@@ -99,13 +113,35 @@ classifyRefTarget render = go
     -- `Ella not in onlyAlice` assertion ill-typed: disjoint types)
     combine op' (ClaferSet ua ja) (ClaferSet ub jb) = Right $ ClaferSet (ua ++ ub) (setOp op' ja jb)
     combine op' (IntSet a) (IntSet b) = IntSet <$> intOp op' a b
-    combine "++" (StrSet a) (StrSet b) = Right $ StrSet $ nub $ a ++ b
-    combine "**" (StrSet a) (StrSet b) = nonEmptyStr $ a `intersect` b
-    combine "--" (StrSet a) (StrSet b) = nonEmptyStr $ a \\ b
+    combine op' (StrSet a) (StrSet b) = StrSet <$> strOp op' a b
     combine _ _ _ = Left "a set expression mixing clafers, integers, and strings"
 
-    nonEmptyStr [] = Left "an empty set of strings"
-    nonEmptyStr ts = Right $ StrSet ts
+    finiteStr [] = Left "an empty set of strings"
+    finiteStr ts = Right $ StrFinite ts
+    -- excluding nothing is the universe again
+    coFiniteStr [] = StrUniverse
+    coFiniteStr ts = StrCoFinite ts
+
+    strOp "++" StrUniverse _ = Right StrUniverse
+    strOp "++" _ StrUniverse = Right StrUniverse
+    strOp "++" (StrFinite a)   (StrFinite b)   = Right $ StrFinite $ nub $ a ++ b
+    strOp "++" (StrCoFinite a) (StrFinite b)   = Right $ coFiniteStr $ a \\ b            -- ¬a ∪ b = ¬(a − b)
+    strOp "++" (StrFinite a)   (StrCoFinite b) = Right $ coFiniteStr $ b \\ a            -- a ∪ ¬b = ¬(b − a)
+    strOp "++" (StrCoFinite a) (StrCoFinite b) = Right $ coFiniteStr $ a `intersect` b  -- ¬a ∪ ¬b = ¬(a ∩ b)
+    strOp "**" StrUniverse x = Right x
+    strOp "**" x StrUniverse = Right x
+    strOp "**" (StrFinite a)   (StrFinite b)   = finiteStr $ a `intersect` b
+    strOp "**" (StrCoFinite a) (StrFinite b)   = finiteStr $ b \\ a                    -- ¬a ∩ b = b − a
+    strOp "**" (StrFinite a)   (StrCoFinite b) = finiteStr $ a \\ b                    -- a ∩ ¬b = a − b
+    strOp "**" (StrCoFinite a) (StrCoFinite b) = Right $ StrCoFinite $ nub $ a ++ b     -- ¬a ∩ ¬b = ¬(a ∪ b)
+    strOp "--" _ StrUniverse = Left "an empty set of strings (`-- string`)"
+    strOp "--" StrUniverse (StrFinite a)   = Right $ StrCoFinite a
+    strOp "--" StrUniverse (StrCoFinite a) = Right $ StrFinite a                        -- U − ¬a = a
+    strOp "--" (StrFinite a)   (StrFinite b)   = finiteStr $ a \\ b
+    strOp "--" (StrCoFinite a) (StrFinite b)   = Right $ StrCoFinite $ nub $ a ++ b     -- ¬a − b = ¬(a ∪ b)
+    strOp "--" (StrFinite a)   (StrCoFinite b) = finiteStr $ a `intersect` b            -- a − ¬b = a ∩ b
+    strOp "--" (StrCoFinite a) (StrCoFinite b) = finiteStr $ b \\ a                    -- ¬a − ¬b = b − a
+    strOp op' _ _ = Left $ "the operator " ++ op' ++ " over string sets"
 
     setOp "++" a b = "union(" ++ a ++ ", " ++ b ++ ")"
     setOp "**" a b = "inter(" ++ a ++ ", " ++ b ++ ")"
@@ -274,9 +310,13 @@ genCModule (imodule@IModule{_mDecls}, genv') scopes  otherTokens' =
             encode (IntSet (IntFinite js))   = ("Int", Just $ "$in(" ++ thisRef ++ ", " ++ js ++ ")")
             encode (IntSet (IntCoFinite js)) = ("Int", Just $ "notIn(" ++ thisRef ++ ", " ++ js ++ ")")
             -- chocosolver rejects a union of string constants, so a
-            -- string enumeration is a disjunction of equalities
-            encode (StrSet ts)               = ("string", Just $ foldl1 (\acc e -> "or(" ++ acc ++ ", " ++ e ++ ")")
-                                                  [ "equal(" ++ thisRef ++ ", constant(" ++ show t ++ "))" | t <- ts ])
+            -- string enumeration is a disjunction of equalities and a
+            -- co-finite string set a conjunction of inequalities
+            encode (StrSet StrUniverse)      = ("string", Nothing)
+            encode (StrSet (StrFinite ts))   = ("string", Just $ strFormula "or" "equal" ts)
+            encode (StrSet (StrCoFinite ts)) = ("string", Just $ strFormula "and" "notEqual" ts)
+            strFormula conn test ts = foldl1 (\acc e -> conn ++ "(" ++ acc ++ ", " ++ e ++ ")")
+                                        [ test ++ "(" ++ thisRef ++ ", constant(" ++ show t ++ "))" | t <- ts ]
             thisRef = "joinRef($this())"
 
     plainRefTargetId PExp{_exp = IClaferId{_sident}} = _sident
