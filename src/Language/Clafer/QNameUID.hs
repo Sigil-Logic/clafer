@@ -108,18 +108,22 @@ addClafer    path        (fqNameUIDMap, uidFqNameMap)    (IEClafer iClaf) =
         addElements ("::" : newPath) (_elements iClaf) (fqNameUIDMap', uidFqNameMap')
 addClafer    _           maps                            _                  = maps
 
+-- | The UIDs a qualified name denotes.  A fully qualified name (leading
+-- "::") names at most one clafer, by exact key.  A partially qualified name
+-- names every clafer whose fully qualified name ends in it: a prefix search
+-- over the reversed keys that must end at a segment boundary, so `A`
+-- matches the keys `A::` and `A::X::` (`::A`, `::X::A`) but not `AB::`
+-- (Sigil-Logic/clafer#38; the match used to be character-wise, which
+-- over-qualified `A` beside `AB` to `::A`).  The empty name matches every
+-- clafer.
 findUIDsByFQName :: FQNameUIDMap -> FQName            -> [ UID ]
 findUIDsByFQName    fqNameUIDMap    fqName@(':':':':_) = maybeToList $ Map.lookup (getFQKey fqName) fqNameUIDMap
-findUIDsByFQName    fqNameUIDMap    fqName             = prefixFind (getFQKey fqName) fqNameUIDMap
+findUIDsByFQName    fqNameUIDMap    ""                 = Map.elems fqNameUIDMap
+findUIDsByFQName    fqNameUIDMap    pqName             = prefixFind (getFQKey pqName ++ "::") fqNameUIDMap
 
 -- all values whose key begins with the given prefix, in ascending key order
 -- (replaces Data.StringMap.prefixFind: keys sharing a prefix form a
---  contiguous range in an ordered map, carved out by two antitone splits).
--- The match is character-wise, not segment-wise: the prefix `A` also matches
--- the key `AB::`, so a plain name that prefixes another clafer's name is
--- judged ambiguous and over-qualified (`A` beside `AB` derives `::A`).
--- Sigil-Logic/clafer#38 tracks the segment-boundary fix; Sigil-Logic/clafer#34
--- left it unchanged so every multi-clafer .cfr-map stays byte-identical.
+--  contiguous range in an ordered map, carved out by two antitone splits)
 prefixFind :: FQKey -> FQNameUIDMap -> [UID]
 prefixFind    prefix   fqNameUIDMap =
     Map.elems $ Map.takeWhileAntitone (prefix `isPrefixOf`) $ Map.dropWhileAntitone (< prefix) fqNameUIDMap
@@ -158,16 +162,10 @@ generateUIDLpqMapEntry    fqNameUIDMap     fqKey       uid'   uidLpqNameMap =
               else findLeastQualifiedName pqName fqNameUIDMap'
       -- handle partially qualified name case
       findLeastQualifiedName pqName fqNameUIDMap'
-         -- a plain name has no qualification left to remove: it is the
-         -- least-qualified form, and the caller has already established
-         -- that it identifies the clafer uniquely.  Without this base case
-         -- the step below strips the plain name to the empty name, whose
-         -- prefix search returns every clafer in the module; a module with
-         -- a single clafer never returns more than one, so the recursion
-         -- looped on the empty name forever and `--meta-data` hung on any
-         -- single-top-level-clafer model (Sigil-Logic/clafer#34).  Modules
-         -- with two or more clafers stopped here by accident, because the
-         -- empty prefix matched them all.
+         -- a plain name is the least-qualified form (the caller has already
+         -- checked it is unique); without this base case the step below
+         -- searched the empty name, which matches every clafer, and looped
+         -- forever on a single-clafer module (Sigil-Logic/clafer#34)
          | not ("::" `isInfixOf` pqName) = pqName
          | otherwise =
          let
