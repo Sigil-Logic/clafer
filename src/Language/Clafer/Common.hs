@@ -66,9 +66,12 @@ getReference c = case _ref <$> _reference c of
 getSuperAndReference :: IClafer -> [String]
 getSuperAndReference c = (getSuper c) ++ (getReference c)
 
+-- | The UID a resolved super type names.  'ResolverInheritance.resolveNSuper'
+-- normalizes every super type (plain name or dotted path,
+-- Sigil-Logic/clafer#29) to a single 'IClaferId', so any other shape here is
+-- an internal invariant violation, not a model error.
 getSuperId :: PExp -> String
 getSuperId (PExp _ _ _ (IClaferId{ _sident = s})) = s
-getSuperId (PExp _ _ _ (IFunExp{_op=".", _exps = [_, rightExp]})) = getSuperId rightExp
 getSuperId pexp' = error $ "[Bug] Commmon.getSuperId called on unexpected argument '" ++ show pexp' ++ "'"
 
 getRefIds :: PExp -> [String]

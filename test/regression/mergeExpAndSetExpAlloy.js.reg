@@ -1,4 +1,4 @@
-scope({c0_Person:2, c0_friend:2, c0_likes:2});
+scope({c0_Head:2, c0_Person:2, c0_friend:2, c0_heads:2, c0_likes:2});
 defaultScope(1);
 intRange(-8, 7);
 stringLength(16);
@@ -31,7 +31,7 @@ c0_Alice.extending(c0_Person);
 c1_Head.extending(c0_Head);
 c0_Alice.addConstraint(equal(joinRef(join($this(), c0_likes)), global(c0_Ella)));
 c0_Ella.extending(c0_Person);
-c0_h;
+c0_h.extending(c0_Head);
 c0_Ella.addConstraint(none(join($this(), c0_likes)));
 c0_heads.refToUnique(c0_Head);
 c0_friend.refToUnique(c0_Person);

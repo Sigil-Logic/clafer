@@ -271,8 +271,10 @@ allUnique iModule = dontExtend && identsUnique
     allClafers :: [ IClafer ]
     allClafers = universeOn biplate iModule
 
-    -- True when getSuper always returns Nothing and therefore concatMap returned []
-    dontExtend = null $ concatMap getSuper allClafers
+    -- True when no clafer declares a super type.  This runs before the
+    -- resolver has normalized super-type expressions (Sigil-Logic/clafer#29),
+    -- so it must only test for presence and never inspect the shape.
+    dontExtend = all (isNothing . _super) allClafers
     allIdents = map _ident allClafers
     -- all idents are unique when nub cannot remove any duplicates
     identsUnique = (length allIdents) == (length $ nub allIdents)

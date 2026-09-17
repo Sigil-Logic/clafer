@@ -80,13 +80,13 @@ sugarDeclaration  (IEGoal isMaximize' goal) = ElementDecl (_inPos goal) $ Subgoa
 desugarClafer :: Clafer -> [IElement]
 desugarClafer claf@(Clafer s abstract' tmods gcrd' id' super' reference' crd' init' trans' elements') =
   case (super', reference') of
-    (SuperSome ss setExp, ReferenceEmpty _) -> if isPrimitive $ getPExpClaferIdent setExp
+    (SuperSome ss setExp, ReferenceEmpty _) -> if isPrimitiveSuper setExp
       then desugarClafer' (Clafer s abstract' tmods gcrd' id' (SuperEmpty s) (ReferenceSet ss setExp) crd' init' trans' elements')
       else desugarClafer' claf
-    (SuperSome _ setExp, ReferenceSet _ _) -> if isPrimitive $ getPExpClaferIdent setExp
+    (SuperSome _ setExp, ReferenceSet _ _) -> if isPrimitiveSuper setExp
       then error "Desugarer: cannot rewrite : with primitive type into -> because a reference is also present. Using : with primitive types is discouraged."
       else desugarClafer' claf
-    (SuperSome _ setExp, ReferenceBag _ _) -> if isPrimitive $ getPExpClaferIdent setExp
+    (SuperSome _ setExp, ReferenceBag _ _) -> if isPrimitiveSuper setExp
       then error "Desugarer: cannot rewrite : with primitive type into -> because a reference is also present. Using : with primitive types is discouraged."
       else desugarClafer' claf
     _ -> desugarClafer' claf
@@ -113,10 +113,15 @@ sugarModifier modifiers' =
   (if _final modifiers' then [Final noSpan] else [])
 
 
-getPExpClaferIdent :: Exp -> String
-getPExpClaferIdent (ClaferId _ (Path _ [ (ModIdIdent _ pident') ] )) = transIdent pident'
-getPExpClaferIdent (EJoin _ _ e2) = getPExpClaferIdent e2
-getPExpClaferIdent _ = error "Desugarer:getPExpClaferIdent not given a ClaferId PExp"
+-- | Whether a super-type expression names a primitive type (@x : integer@),
+-- which the desugarer turns into a reference.  Any shape other than a name
+-- or a "."-join of names is not primitive; the resolver then rejects it with
+-- a positioned semantic error (Sigil-Logic/clafer#29) instead of the
+-- internal crash this function used to raise for, e.g., @x : (A ++ B)@.
+isPrimitiveSuper :: Exp -> Bool
+isPrimitiveSuper (ClaferId _ (Path _ [ (ModIdIdent _ pident') ] )) = isPrimitive $ transIdent pident'
+isPrimitiveSuper (EJoin _ _ e2) = isPrimitiveSuper e2
+isPrimitiveSuper _ = False
 
 sugarClafer :: IClafer -> Clafer
 sugarClafer (IClafer s modifiers' gcard' _ uid' _ super' reference' crd' _ elements') =

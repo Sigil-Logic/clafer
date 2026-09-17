@@ -1,0 +1,6 @@
+// Sigil-Logic/clafer#29: the first segment names no clafer at all.
+abstract Person
+    abstract Head
+
+Ella : Person
+    h : Nobody.Head

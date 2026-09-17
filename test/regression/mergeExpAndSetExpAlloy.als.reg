@@ -1,6 +1,6 @@
 open util/integer
 pred show {}
-run show for 1 but 2 c0_Person, 2 c0_friend, 2 c0_likes
+run show for 1 but 2 c0_Head, 2 c0_Person, 2 c0_friend, 2 c0_heads, 2 c0_likes
 
 one sig c0_numberOne
 { c0_numberOne_ref : one 1 }
@@ -36,9 +36,10 @@ one sig c1_Head extends c0_Head
 
 one sig c0_Ella extends c0_Person
 { r_c0_h : one c0_h }
-{ no this.@r_c0_likes }
+{ r_c0_h in r_c0_Head
+  no this.@r_c0_likes }
 
-one sig c0_h
+one sig c0_h extends c0_Head
 {}
 
 sig c0_heads
@@ -54,17 +55,17 @@ one sig c0_onlyAlice
 { c0_onlyAlice_ref : one c0_Alice & c0_Person }
 
 assert assertOnLine_37 { c0_Alice in (c0_onlyAlice.@c0_onlyAlice_ref) }
-check assertOnLine_37 for 1 but 2 c0_Person, 2 c0_friend, 2 c0_likes
+check assertOnLine_37 for 1 but 2 c0_Head, 2 c0_Person, 2 c0_friend, 2 c0_heads, 2 c0_likes
 
 assert assertOnLine_38 { c0_Ella not in (c0_onlyAlice.@c0_onlyAlice_ref) }
-check assertOnLine_38 for 1 but 2 c0_Person, 2 c0_friend, 2 c0_likes
+check assertOnLine_38 for 1 but 2 c0_Head, 2 c0_Person, 2 c0_friend, 2 c0_heads, 2 c0_likes
 
 one sig c0_exceptElla
 { c0_exceptElla_ref : one c0_Person - c0_Ella }
 
 assert assertOnLine_43 { c0_Alice in (c0_exceptElla.@c0_exceptElla_ref) }
-check assertOnLine_43 for 1 but 2 c0_Person, 2 c0_friend, 2 c0_likes
+check assertOnLine_43 for 1 but 2 c0_Head, 2 c0_Person, 2 c0_friend, 2 c0_heads, 2 c0_likes
 
 assert assertOnLine_44 { c0_Ella not in (c0_exceptElla.@c0_exceptElla_ref) }
-check assertOnLine_44 for 1 but 2 c0_Person, 2 c0_friend, 2 c0_likes
+check assertOnLine_44 for 1 but 2 c0_Head, 2 c0_Person, 2 c0_friend, 2 c0_heads, 2 c0_likes
 

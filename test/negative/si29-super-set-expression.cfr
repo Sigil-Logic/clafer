@@ -1,0 +1,7 @@
+// Sigil-Logic/clafer#29: a parenthesized set expression parses in super
+// position but names no clafer; it must be rejected with a semantic error,
+// not crash the desugarer.
+abstract Person
+abstract Animal
+
+Ella : (Person ++ Animal)
