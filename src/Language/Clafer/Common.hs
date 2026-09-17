@@ -94,9 +94,9 @@ getRefIds (PExp _ _ _ (IDeclPExp{_quant = ISome})) = []
 -- (a clafer operand, unary minus over a set expression, arithmetic over
 -- real literals, division by zero) is rejected with a positioned error
 -- before any consumer of a reference target runs
--- ("Language.Clafer.Intermediate.ResolverInheritance", 'residualArithmetic'),
--- so reaching the invariant below with it is a pass-ordering bug, not a
--- model error.
+-- ('Language.Clafer.Intermediate.ResolverInheritance.rejectUnfoldableReferenceTargets',
+-- which locates the offending node with 'residualArithmetic'), so reaching
+-- the invariant below with it is a pass-ordering bug, not a model error.
 getRefIds pexp'@(PExp _ _ _ (IFunExp{_op = op', _exps = exps'}))
   | isArithmeticApp op' exps', isNumericLiteral (_exp folded) = getRefIds folded
   where
