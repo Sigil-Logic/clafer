@@ -1,0 +1,16 @@
+open util/integer
+pred show {}
+run show for 1
+
+one sig c0_neg
+{ c0_neg_ref : one -1 }
+
+assert assertOnLine_15 { (c0_neg.@c0_neg_ref) = (-1.mul[1]) }
+check assertOnLine_15 for 1
+
+one sig c0_negOrOne
+{ c0_negOrOne_ref : one -1 + 1 }
+
+assert assertOnLine_20 { ((c0_negOrOne.@c0_negOrOne_ref) = (-1.mul[1])) || ((c0_negOrOne.@c0_negOrOne_ref) = 1) }
+check assertOnLine_20 for 1
+

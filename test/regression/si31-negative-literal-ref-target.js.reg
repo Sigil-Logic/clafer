@@ -1,0 +1,12 @@
+defaultScope(1);
+intRange(-8, 7);
+stringLength(16);
+
+c0_neg = Clafer("c0_neg").withCard(1, 1);
+c0_negOrOne = Clafer("c0_negOrOne").withCard(1, 1);
+c0_neg.refToUnique(Int);
+c0_neg.addConstraint($in(joinRef($this()), constant(-1)));
+assert(equal(joinRef(global(c0_neg)), constant(-1)));
+c0_negOrOne.refToUnique(Int);
+c0_negOrOne.addConstraint($in(joinRef($this()), union(constant(-1), constant(1))));
+assert(or(equal(joinRef(global(c0_negOrOne)), constant(-1)), equal(joinRef(global(c0_negOrOne)), constant(1))));
