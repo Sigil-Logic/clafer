@@ -1,0 +1,16 @@
+digraph "si36-printer-parentheses"
+{
+rankdir=BT;
+ranksep=0.3;
+nodesep=0.1;
+graph [fontname=Sans fontsize=11];
+node [shape=box color=lightgray fontname=Sans fontsize=11 margin="0.02,0.02" height=0.2 ];
+edge [fontname=Sans fontsize=11];
+"c0_prod" [label="prod -&gt; integer" URL="#c0_prod" tooltip="prod -&gt; integer&#10;"];
+"c0_rightNested" [label="rightNested -&gt; integer" URL="#c0_rightNested" tooltip="rightNested -&gt; integer&#10;"];
+"c0_leftNested" [label="leftNested -&gt; integer" URL="#c0_leftNested" tooltip="leftNested -&gt; integer&#10;"];
+"c0_negatedSum" [label="negatedSum -&gt; integer" URL="#c0_negatedSum" tooltip="negatedSum -&gt; integer&#10;"];
+"c0_negatedQuotient" [label="negatedQuotient -&gt; integer" URL="#c0_negatedQuotient" tooltip="negatedQuotient -&gt; integer&#10;"];
+"c0_setDiff" [label="setDiff -&gt; ((-1)++1)--1" URL="#c0_setDiff" tooltip="setDiff -&gt; ((-1)++1)--1&#10;"];
+"c0_flag" [label="flag -&gt; integer" URL="#c0_flag" tooltip="flag -&gt; integer&#10;"];
+}

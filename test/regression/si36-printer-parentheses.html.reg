@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="X-UA-Compatible" content="IE=9">
+<style>.identifier{}
+.keyword{font-weight: bold;}
+.tKeyword{font-style: oblique;}
+.reference{}
+.code { background-color: lightgray; padding: 5px 5px 5px 5px; border: 1px solid darkgray; margin-bottom: 15px;
+        font-family: Pragmata, Menlo, 'DejaVu LGC Sans Mono', 'DejaVu Sans Mono', Consolas, 'Everson Mono', 'Lucida Console', 'Andale Mono', 'Nimbus Mono L', 'Liberation Mono', FreeMono, 'Osaka Monospaced', Courier, 'New Courier', monospace; }
+.standalonecomment { color: green; font-style:italic }
+.inlinecomment { color: green; padding-left:20px; font-style:italic }
+.error{background-color: yellow; color: red }
+.deprecated{color: orange }
+.indent{padding-left:20px}
+a[href$='Lookup failed'] {color: red}
+a[href$='Uid not found'] {color: red}
+a[href$='Ambiguous name'] {color: yellow}
+</style></head>
+<body>
+
+<div>
+<span class="claferDecl" id="c0_prod">prod</span><span class="keyword"> -> </span><a href="#integer"><span class="reference">integer</span></a></div>
+
+
+<div>
+<span class="keyword">[</span> <a href="#c0_prod"><span class="reference">prod</span></a> = (1 - 2) * 3 <span class="keyword">]</span></div>
+
+
+<div>
+<span class="keyword">assert [</span> <a href="#c0_prod"><span class="reference">prod</span></a> = -3 <span class="keyword">]</span></div>
+
+
+<div>
+<span class="claferDecl" id="c0_rightNested">rightNested</span><span class="keyword"> -> </span><a href="#integer"><span class="reference">integer</span></a></div>
+
+
+<div>
+<span class="keyword">[</span> <a href="#c0_rightNested"><span class="reference">rightNested</span></a> = 1 - (2 - 3) <span class="keyword">]</span></div>
+
+
+<div>
+<span class="keyword">assert [</span> <a href="#c0_rightNested"><span class="reference">rightNested</span></a> = 2 <span class="keyword">]</span></div>
+
+
+<div>
+<span class="claferDecl" id="c0_leftNested">leftNested</span><span class="keyword"> -> </span><a href="#integer"><span class="reference">integer</span></a></div>
+
+
+<div>
+<span class="keyword">[</span> <a href="#c0_leftNested"><span class="reference">leftNested</span></a> = 1 - 2 - 3 <span class="keyword">]</span></div>
+
+
+<div>
+<span class="keyword">assert [</span> <a href="#c0_leftNested"><span class="reference">leftNested</span></a> = -4 <span class="keyword">]</span></div>
+
+
+<div>
+<span class="claferDecl" id="c0_negatedSum">negatedSum</span><span class="keyword"> -> </span><a href="#integer"><span class="reference">integer</span></a></div>
+
+
+<div>
+<span class="keyword">[</span> <a href="#c0_negatedSum"><span class="reference">negatedSum</span></a> = -(2 + 1) <span class="keyword">]</span></div>
+
+
+<div>
+<span class="keyword">assert [</span> <a href="#c0_negatedSum"><span class="reference">negatedSum</span></a> = -3 <span class="keyword">]</span></div>
+
+
+<div>
+<span class="claferDecl" id="c0_negatedQuotient">negatedQuotient</span><span class="keyword"> -> </span><a href="#integer"><span class="reference">integer</span></a></div>
+
+
+<div>
+<span class="keyword">[</span> <a href="#c0_negatedQuotient"><span class="reference">negatedQuotient</span></a> = -(4 + 2) &#47; 3 <span class="keyword">]</span></div>
+
+
+<div>
+<span class="keyword">assert [</span> <a href="#c0_negatedQuotient"><span class="reference">negatedQuotient</span></a> = -2 <span class="keyword">]</span></div>
+
+
+<div>
+<span class="claferDecl" id="c0_setDiff">setDiff</span><span class="keyword"> -> </span>((-1)++1)--1</div>
+
+
+<div>
+<span class="keyword">assert [</span> <a href="#c0_setDiff"><span class="reference">setDiff</span></a> = -1 <span class="keyword">]</span></div>
+
+
+<div>
+<span class="claferDecl" id="c0_flag">flag</span><span class="keyword"> -> </span><a href="#integer"><span class="reference">integer</span></a></div>
+
+
+<div>
+<span class="keyword">[</span> (<a href="#c0_flag"><span class="reference">flag</span></a> = 1 &#124;&#124; <a href="#c0_flag"><span class="reference">flag</span></a> = 2) &amp;&amp; <a href="#c0_flag"><span class="reference">flag</span></a> != 2 <span class="keyword">]</span></div>
+
+
+<div>
+<span class="keyword">[</span>  ! (<a href="#c0_flag"><span class="reference">flag</span></a> = 3 &amp;&amp; <a href="#c0_flag"><span class="reference">flag</span></a> = 4) <span class="keyword">]</span></div>
+
+
+<div>
+<span class="keyword">[</span>  ! <a href="#c0_flag"><span class="reference">flag</span></a> = 4 <span class="keyword">]</span></div>
+
+
+<div>
+<span class="keyword">[</span> <a href="#c0_flag"><span class="reference">flag</span></a> = 1 =&gt; (<a href="#c0_flag"><span class="reference">flag</span></a> = 2 =&gt; <a href="#c0_flag"><span class="reference">flag</span></a> = 3) <span class="keyword">]</span></div>
+
+
+<div>
+<span class="keyword">assert [</span> <a href="#c0_flag"><span class="reference">flag</span></a> = 1 <span class="keyword">]</span></div>
+
+
+<div>
+<span class="keyword">[</span> <a href="#c0_prod"><span class="reference">prod</span></a> + <a href="#c0_rightNested"><span class="reference">rightNested</span></a> = -1 <span class="keyword">]</span></div>
+
+</body>
+</html>

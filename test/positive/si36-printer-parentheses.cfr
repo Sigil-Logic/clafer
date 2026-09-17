@@ -1,0 +1,59 @@
+// Sigil-Logic/clafer#36: parentheses in the HTML and Graph renderings.  The
+// parser keeps no node for the parentheses it consumes, so the HTML printer
+// (which the Graph generator reuses for its labels and tooltips) restores
+// them from operator precedence: a sub-expression is parenthesized exactly
+// when the grammar level of its own production is below the level its
+// position admits.  Each shape below is one whose parentheses change the
+// value or would not re-parse without them, across the arithmetic, set,
+// relational, and logical operators and unary minus, plus shapes that must
+// not gain parentheses.  The .html.reg and .dot.reg pin the renderings; the
+// .als.reg and .js.reg pin that the Alloy and Choco outputs are untouched by
+// the printer; the assertions let the gated Choco leg confirm the values the
+// source denotes.
+
+// arithmetic: a lower-level operand of `*`, and a same-level right operand
+// of `-` (a same-level LEFT operand stays bare: `-` is left-associative).
+// The Alloy facts of these three rows are mis-rendered on master -- the
+// Alloy generators render a binary `-` as negation of the left operand
+// (Sigil-Logic/clafer#41) -- so their assertions hold in Choco only until
+// #41 lands and re-baselines the .als.reg; the renderings pinned here are
+// the printer's, which is what this model is for.
+prod -> integer
+[ prod = (1 - 2) * 3 ]
+assert [ prod = -3 ]
+
+rightNested -> integer
+[ rightNested = 1 - (2 - 3) ]
+assert [ rightNested = 2 ]
+
+leftNested -> integer
+[ leftNested = (1 - 2) - 3 ]
+assert [ leftNested = -4 ]
+
+// unary minus over a parenthesized sum, and that sum as an operand of `/`
+negatedSum -> integer
+[ negatedSum = -(2 + 1) ]
+assert [ negatedSum = -3 ]
+
+negatedQuotient -> integer
+[ negatedQuotient = -(4 + 2) / 3 ]
+assert [ negatedQuotient = -2 ]
+
+// set operators in a reference target: the target admits an Exp23, so the
+// difference prints bare while its lower-level union operand and the unary
+// minus inside the union are parenthesized
+setDiff -> ((-1) ++ 1) -- 1
+assert [ setDiff = -1 ]
+
+// relational and logical: a disjunction under `&&`, negation over a
+// conjunction (negation over a single comparison stays bare: `!` admits it),
+// and an implication as the right operand of an implication
+flag -> integer
+[ (flag = 1 || flag = 2) && flag != 2 ]
+[ !(flag = 3 && flag = 4) ]
+[ !flag = 4 ]
+[ flag = 1 => (flag = 2 => flag = 3) ]
+assert [ flag = 1 ]
+
+// source parentheses precedence does not need are not restored
+[ (prod + rightNested) = -1 ]
