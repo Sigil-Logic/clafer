@@ -1,0 +1,95 @@
+open util/integer
+pred show {}
+run show for 1 but 2 c0_Person, 2 c0_friend
+
+abstract sig c0_Person
+{ r_c0_Head : set c0_Head }
+
+abstract sig c0_Head
+{}
+{ one @r_c0_Head.this }
+
+one sig c0_Alice extends c0_Person
+{ r_c1_Head : one c1_Head }
+{ r_c1_Head in r_c0_Head }
+
+one sig c1_Head extends c0_Head
+{}
+
+one sig c0_Ella extends c0_Person
+{}
+
+one sig c0_Guest
+{}
+
+fact { 2 <= #c0_friend and #c0_friend <= 2 }
+sig c0_friend
+{ c0_friend_ref : one c0_Alice + c0_Ella }
+
+fact {  all disj x, y : c0_friend | (x.@c0_friend_ref) != (y.@c0_friend_ref)  }
+one sig c0_onlyAlice
+{ c0_onlyAlice_ref : one c0_Alice & c0_Person }
+
+one sig c0_exceptElla
+{ c0_exceptElla_ref : one c0_Person - c0_Ella }
+
+one sig c0_anyone
+{ c0_anyone_ref : one c0_Person + c0_Guest }
+
+one sig c0_heads
+{ c0_heads_ref : one c0_Head }
+
+one sig c0_grade
+{ c0_grade_ref : one (1 + 2) + 3 }
+
+one sig c0_nonZero
+{ c0_nonZero_ref : one Int - 0 }
+
+one sig c0_single
+{ c0_single_ref : one 1 }
+
+one sig c0_notZeroOrOne
+{ c0_notZeroOrOne_ref : one (Int - 0) - 1 }
+
+one sig c0_smallOrAny
+{ c0_smallOrAny_ref : one Int & (1 + 2) }
+
+one sig c0_name
+{ c0_name_ref : one 0 }
+
+one sig c0_tag
+{ c0_tag_ref : one 1 + 2 }
+
+assert assertOnLine_41 { (c0_Alice in (c0_friend.@c0_friend_ref)) && (c0_Ella in (c0_friend.@c0_friend_ref)) }
+check assertOnLine_41 for 1 but 2 c0_Person, 2 c0_friend
+
+assert assertOnLine_42 { (c0_onlyAlice.@c0_onlyAlice_ref) = c0_Alice }
+check assertOnLine_42 for 1 but 2 c0_Person, 2 c0_friend
+
+assert assertOnLine_43 { (c0_exceptElla.@c0_exceptElla_ref) = c0_Alice }
+check assertOnLine_43 for 1 but 2 c0_Person, 2 c0_friend
+
+assert assertOnLine_44 { (c0_anyone.@c0_anyone_ref) in (c0_Person + c0_Guest) }
+check assertOnLine_44 for 1 but 2 c0_Person, 2 c0_friend
+
+assert assertOnLine_45 { ((c0_grade.@c0_grade_ref) >= 1) && ((c0_grade.@c0_grade_ref) <= 3) }
+check assertOnLine_45 for 1 but 2 c0_Person, 2 c0_friend
+
+assert assertOnLine_46 { (c0_nonZero.@c0_nonZero_ref) != 0 }
+check assertOnLine_46 for 1 but 2 c0_Person, 2 c0_friend
+
+assert assertOnLine_47 { (c0_single.@c0_single_ref) = 1 }
+check assertOnLine_47 for 1 but 2 c0_Person, 2 c0_friend
+
+assert assertOnLine_48 { ((c0_notZeroOrOne.@c0_notZeroOrOne_ref) != 0) && ((c0_notZeroOrOne.@c0_notZeroOrOne_ref) != 1) }
+check assertOnLine_48 for 1 but 2 c0_Person, 2 c0_friend
+
+assert assertOnLine_49 { ((c0_smallOrAny.@c0_smallOrAny_ref) = 1) || ((c0_smallOrAny.@c0_smallOrAny_ref) = 2) }
+check assertOnLine_49 for 1 but 2 c0_Person, 2 c0_friend
+
+assert assertOnLine_50 { (c0_name.@c0_name_ref) = 0 }
+check assertOnLine_50 for 1 but 2 c0_Person, 2 c0_friend
+
+assert assertOnLine_51 { ((c0_tag.@c0_tag_ref) = 1) || ((c0_tag.@c0_tag_ref) = 2) }
+check assertOnLine_51 for 1 but 2 c0_Person, 2 c0_friend
+

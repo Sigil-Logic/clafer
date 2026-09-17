@@ -532,6 +532,9 @@ generate =
       (hasNoRealLiterals, hasNoProductOperator, hasNoTempOperators) = iExpBasedChecks iModule
       (hasNoReferenceToReal, hasNoTempModifiers) = iClaferBasedChecks iModule
       staticClaferSubset = hasNoTempOperators && hasNoTempModifiers
+      -- reference targets the Choco backend cannot express (Sigil-Logic/clafer#18)
+      unsupportedChocoRefs = chocoUnsupportedRefTargets iModule
+      hasNoUnsupportedChocoRefs = null unsupportedChocoRefs
       cargs = args env
       otherTokens' = otherTokens env
       modes = mode cargs
@@ -649,7 +652,7 @@ generate =
         )
         -- result for Choco
         ++ (if Choco `elem` modes
-            then if hasNoRealLiterals && hasNoReferenceToReal && staticClaferSubset
+            then if hasNoRealLiterals && hasNoReferenceToReal && staticClaferSubset && hasNoUnsupportedChocoRefs
                  then [(Choco,
                         CompilerResult {
                           extension = "js",
@@ -668,6 +671,10 @@ generate =
                             else "Choco output unavailable because the model contains: "
                                  ++ (if hasNoRealLiterals then "" else "a real number literal, ")
                                  ++ (if hasNoReferenceToReal then "" else "a reference to a real. ")
+                                 ++ (if hasNoUnsupportedChocoRefs then "" else
+                                       "a reference target the Choco backend cannot express ("
+                                       ++ drop 2 (concat [ "; " ++ uid' ++ ": " ++ why | (uid', why) <- unsupportedChocoRefs ])
+                                       ++ "). ")
                         })
                       ]
           else []

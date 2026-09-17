@@ -1,0 +1,15 @@
+# Expected bare-uid statements in the generated Choco output
+# (Sigil-Logic/clafer#18; consumed by test/Makefile validateChocoEmission).
+#
+# The Choco generator emits `cN_uid;` on its own line only for a clafer
+# that declares a super type or a reference for which it emitted
+# NEITHER -- i.e. a silent drop.  validateChocoEmission fails on every
+# such line not listed here as <file>:<uid>.  Entries are strict
+# expected occurrences: if a listed line stops appearing, or its file
+# stops being generated, the harness fails with a [STALE] error and the
+# entry must be removed.
+#
+# mergeExpAndSetExpAlloy.js:c0_h -- `h : Person.Head`: dotted super-type
+# expressions are left unresolved by the resolver and dropped by both
+# backends (Sigil-Logic/clafer#29); fixing #29 must empty this list.
+mergeExpAndSetExpAlloy.js:c0_h

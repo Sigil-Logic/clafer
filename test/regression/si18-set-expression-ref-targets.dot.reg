@@ -1,0 +1,29 @@
+digraph "si18-set-expression-ref-targets"
+{
+rankdir=BT;
+ranksep=0.3;
+nodesep=0.1;
+graph [fontname=Sans fontsize=11];
+node [shape=box color=lightgray fontname=Sans fontsize=11 margin="0.02,0.02" height=0.2 ];
+edge [fontname=Sans fontsize=11];
+"c0_Person" [label="abstract Person" URL="#c0_Person" tooltip="abstract Person&#10;  abstract Head&#10;"];
+"c0_Head" [label="abstract Head" URL="#c0_Head" tooltip="abstract Head&#10;"];
+"c0_Alice" [label="Alice : Person" URL="#c0_Alice" tooltip="Alice : Person&#10;  `Head&#10;"];
+"c0_Alice" -> "c0_Person" [arrowhead=onormal constraint=true weight=100];
+"c0_Alice" -> "c0_Head" [arrowhead=vee arrowtail=diamond dir=both style=solid constraint=true weight=5 minlen=2 arrowsize=0.6 penwidth=0.5 ];
+"c0_Ella" [label="Ella : Person" URL="#c0_Ella" tooltip="Ella : Person&#10;"];
+"c0_Ella" -> "c0_Person" [arrowhead=onormal constraint=true weight=100];
+"c0_Guest" [label="Guest" URL="#c0_Guest" tooltip="Guest&#10;"];
+"c0_friend" [label="friend -&gt; Alice++Ella 2" URL="#c0_friend" tooltip="friend -&gt; Alice++Ella 2&#10;"];
+"c0_onlyAlice" [label="onlyAlice -&gt; Alice**Person" URL="#c0_onlyAlice" tooltip="onlyAlice -&gt; Alice**Person&#10;"];
+"c0_exceptElla" [label="exceptElla -&gt; Person--Ella" URL="#c0_exceptElla" tooltip="exceptElla -&gt; Person--Ella&#10;"];
+"c0_anyone" [label="anyone -&gt; Person++Guest" URL="#c0_anyone" tooltip="anyone -&gt; Person++Guest&#10;"];
+"c0_heads" [label="heads -&gt; Person.Head" URL="#c0_heads" tooltip="heads -&gt; Person.Head&#10;"];
+"c0_grade" [label="grade -&gt; 1, 2, 3" URL="#c0_grade" tooltip="grade -&gt; 1, 2, 3&#10;"];
+"c0_nonZero" [label="nonZero -&gt; integer--0" URL="#c0_nonZero" tooltip="nonZero -&gt; integer--0&#10;"];
+"c0_single" [label="single -&gt; 1" URL="#c0_single" tooltip="single -&gt; 1&#10;"];
+"c0_notZeroOrOne" [label="notZeroOrOne -&gt; integer--0--1" URL="#c0_notZeroOrOne" tooltip="notZeroOrOne -&gt; integer--0--1&#10;"];
+"c0_smallOrAny" [label="smallOrAny -&gt; integer**1++2" URL="#c0_smallOrAny" tooltip="smallOrAny -&gt; integer**1++2&#10;"];
+"c0_name" [label="name -&gt; &quot;Alice&quot;" URL="#c0_name" tooltip="name -&gt; &quot;Alice&quot;&#10;"];
+"c0_tag" [label="tag -&gt; &quot;a&quot;, &quot;b&quot;" URL="#c0_tag" tooltip="tag -&gt; &quot;a&quot;, &quot;b&quot;&#10;"];
+}

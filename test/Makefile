@@ -29,6 +29,16 @@ VALIDATE_CHOCO = java -jar $(CHOCOSOLVER_JAR) -v --file
 # removed.
 ALLOY_EXCLUDES = alloy-validation-excludes.txt
 CHOCO_EXCLUDES = choco-validation-excludes.txt
+# Expected Choco assertion counterexamples (Sigil-Logic/clafer#18):
+# chocosolver -v exits 0 whether or not it finds a counterexample
+# (Sigil-Logic/chocosolver#8), so validateChocoOutput also gates on the
+# text 'Failed assertion' in the validator output; entries are strict
+# expected counterexamples, same semantics as the exclusion lists.
+CHOCO_NEGATIVES = choco-assertion-negatives.txt
+# Expected bare `cN_uid;` statements in the generated .js
+# (Sigil-Logic/clafer#18; consumed by validateChocoEmission), as
+# <file>:<uid>; strict expected occurrences.
+CHOCO_BARE_UIDS = choco-bare-uid-expected.txt
 STRIP_EXCLUDES = sed -e 's/[[:space:]]*\#.*$$//' -e '/^[[:space:]]*$$/d'
 
 # Discovery runs through manifest files rather than pipelines: POSIX sh
@@ -41,6 +51,7 @@ STRIP_EXCLUDES = sed -e 's/[[:space:]]*\#.*$$//' -e '/^[[:space:]]*$$/d'
 GEN_MANIFEST = .generate-models.list
 ALLOY_MANIFEST = .validate-alloy.list
 CHOCO_MANIFEST = .validate-choco.list
+CHOCO_EMISSION_MANIFEST = .validate-choco-emission.list
 
 # Gated-diff manifests (Sigil-Logic/clafer#22): the same manifest
 # pattern, one generated-tree/.reg-corpus pair reused by each of the
@@ -49,7 +60,7 @@ CHOCO_MANIFEST = .validate-choco.list
 DIFF_GEN_MANIFEST = .diff-generated.list
 DIFF_REG_MANIFEST = .diff-baselines.list
 
-.PHONY: test generateAlloyJSHTMLDot validateAlloyOutput validateChocoOutput validateCliGating validateDefaultFlagOutput diffRegressions reg newReg clean
+.PHONY: test generateAlloyJSHTMLDot validateAlloyOutput validateChocoOutput validateChocoEmission validateCliGating validateDefaultFlagOutput diffRegressions reg newReg clean
 
 UNAME := $(shell uname | tr "A-Z" "a-z")
 
@@ -88,6 +99,7 @@ test:
 	$(MAKE) generateAlloyJSHTMLDot
 	$(MAKE) validateAlloyOutput
 	$(MAKE) validateChocoOutput
+	$(MAKE) validateChocoEmission
 	$(MAKE) validateCliGating
 	$(MAKE) validateDefaultFlagOutput
 	$(MAKE) diffRegressions
@@ -172,7 +184,14 @@ validateAlloyOutput:
 # Gated Choco validation (Sigil-Logic/clafer#16): every generated .js
 # must be accepted by chocosolver -v, except the explicit by-name
 # exclusions in $(CHOCO_EXCLUDES).  Same strict-exclusion semantics as
-# validateAlloyOutput.
+# validateAlloyOutput.  Because chocosolver -v exits 0 on a JavaScript
+# compilation error AND on a found counterexample
+# (Sigil-Logic/chocosolver#8), the leg also gates on the output text
+# (Sigil-Logic/clafer#18): 'Unhandled compilation error' / 'ReferenceError'
+# is a rejection, and 'Failed assertion' is a rejection unless the file
+# is listed in $(CHOCO_NEGATIVES) as an expected counterexample (strict:
+# a listed file must still produce one).  Drop the text gates once a
+# fixed chocosolver build is re-pinned (chocosolver#8 follow-through).
 validateChocoOutput:
 	@echo "=================================================================="
 	@echo "| Testing 'Positive' suite - validating Choco output             |"
@@ -185,6 +204,9 @@ validateChocoOutput:
 	@if test ! -f "$(CHOCO_EXCLUDES)"; then \
 		echo "[ERROR] Missing $(CHOCO_EXCLUDES)."; false; \
 	fi
+	@if test ! -f "$(CHOCO_NEGATIVES)"; then \
+		echo "[ERROR] Missing $(CHOCO_NEGATIVES)."; false; \
+	fi
 
 	@find $(SUITE_DIR) -type f -iname '*.js' > $(CHOCO_MANIFEST)
 	@sort -o $(CHOCO_MANIFEST) $(CHOCO_MANIFEST)
@@ -192,7 +214,7 @@ validateChocoOutput:
 		echo "[ERROR] No generated .js files found under $(SUITE_DIR)/ -- did generation run?"; \
 		rm -f $(CHOCO_MANIFEST); false; \
 	}
-	@fails=0; checked=0; skipped=0; \
+	@fails=0; checked=0; skipped=0; negatives=0; \
 	while IFS= read -r f; do \
 		if $(STRIP_EXCLUDES) $(CHOCO_EXCLUDES) | grep -qxF "$${f#$(SUITE_DIR)/}"; then \
 			skipped=$$((skipped+1)); continue; \
@@ -202,10 +224,22 @@ validateChocoOutput:
 			echo "[FAIL] chocosolver rejects $$f:"; \
 			printf '%s\n' "$$out" | sed 's/^/    /'; \
 			fails=$$((fails+1)); \
+		elif printf '%s\n' "$$out" | grep -q "Unhandled compilation error\|ReferenceError"; then \
+			echo "[FAIL] chocosolver rejects $$f (exit 0 on a compilation error, chocosolver#8):"; \
+			printf '%s\n' "$$out" | sed 's/^/    /'; \
+			fails=$$((fails+1)); \
+		elif printf '%s\n' "$$out" | grep -q "Failed assertion"; then \
+			if $(STRIP_EXCLUDES) $(CHOCO_NEGATIVES) | grep -qxF "$${f#$(SUITE_DIR)/}"; then \
+				negatives=$$((negatives+1)); \
+			else \
+				echo "[FAIL] chocosolver found a counterexample in $$f (exit 0 on counterexamples, chocosolver#8):"; \
+				printf '%s\n' "$$out" | sed 's/^/    /'; \
+				fails=$$((fails+1)); \
+			fi; \
 		fi; \
 	done < $(CHOCO_MANIFEST); \
 	rm -f $(CHOCO_MANIFEST); \
-	echo "Choco validation: $$checked gated ($$((checked-fails)) accepted, $$fails rejected), $$skipped excluded."; \
+	echo "Choco validation: $$checked gated ($$((checked-fails)) accepted, $$fails rejected; $$negatives expected counterexample(s)), $$skipped excluded."; \
 	[ $$fails -eq 0 ]
 
 	@$(STRIP_EXCLUDES) $(CHOCO_EXCLUDES) | { \
@@ -221,6 +255,78 @@ validateChocoOutput:
 			fi; \
 		done; \
 		[ $$stale -eq 0 ] || { echo "$$stale stale exclusion(s) in $(CHOCO_EXCLUDES)."; false; }; \
+	}
+
+	@$(STRIP_EXCLUDES) $(CHOCO_NEGATIVES) | { \
+		stale=0; \
+		while IFS= read -r name; do \
+			f="$(SUITE_DIR)/$$name"; \
+			if [ ! -f "$$f" ]; then \
+				echo "[STALE] $$name is listed in $(CHOCO_NEGATIVES) but was not generated"; \
+				stale=$$((stale+1)); \
+			else \
+				out=$$($(VALIDATE_CHOCO) "$$f" 2>&1); \
+				if ! printf '%s\n' "$$out" | grep -q "Failed assertion"; then \
+					echo "[STALE] $$name is listed in $(CHOCO_NEGATIVES) but chocosolver no longer finds a counterexample -- remove the entry"; \
+					stale=$$((stale+1)); \
+				fi; \
+			fi; \
+		done; \
+		[ $$stale -eq 0 ] || { echo "$$stale stale entr(y|ies) in $(CHOCO_NEGATIVES)."; false; }; \
+	}
+
+# Gated Choco emission check (Sigil-Logic/clafer#18): the generator
+# emits a bare `cN_uid;` statement only for a clafer that declares a
+# super type or a reference for which it emitted neither -- a silent
+# drop (before #18, every set-expression reference target).  Every
+# such line in the generated tree must be listed in $(CHOCO_BARE_UIDS)
+# as <file>:<uid>; listed entries are strict expected occurrences.
+# This is a static check on the emitted text; the semantic
+# counterpart is the 'Failed assertion' gate above, which catches a
+# dropped restriction the moment an assertion depends on it.
+validateChocoEmission:
+	@echo "=================================================================="
+	@echo "| Testing 'Positive' suite - Choco emission (no bare cN_uid;)     |"
+	@echo "=================================================================="
+	@if test ! -f "$(CHOCO_BARE_UIDS)"; then \
+		echo "[ERROR] Missing $(CHOCO_BARE_UIDS)."; false; \
+	fi
+
+	@find $(SUITE_DIR) -type f -iname '*.js' > $(CHOCO_EMISSION_MANIFEST)
+	@sort -o $(CHOCO_EMISSION_MANIFEST) $(CHOCO_EMISSION_MANIFEST)
+	@test -s $(CHOCO_EMISSION_MANIFEST) || { \
+		echo "[ERROR] No generated .js files found under $(SUITE_DIR)/ -- did generation run?"; \
+		rm -f $(CHOCO_EMISSION_MANIFEST); false; \
+	}
+	@fails=0; checked=0; expected=0; \
+	while IFS= read -r f; do \
+		checked=$$((checked+1)); \
+		for uid in $$(grep -E '^c[0-9]+_[A-Za-z0-9_]+;$$' "$$f" | sed 's/;$$//'); do \
+			if $(STRIP_EXCLUDES) $(CHOCO_BARE_UIDS) | grep -qxF "$${f#$(SUITE_DIR)/}:$$uid"; then \
+				expected=$$((expected+1)); \
+			else \
+				echo "[FAIL] $$f: bare statement '$$uid;' -- the Choco generator dropped a super type or reference"; \
+				fails=$$((fails+1)); \
+			fi; \
+		done; \
+	done < $(CHOCO_EMISSION_MANIFEST); \
+	rm -f $(CHOCO_EMISSION_MANIFEST); \
+	echo "Choco emission: $$checked .js checked, $$fails unexpected bare statement(s), $$expected expected."; \
+	[ $$fails -eq 0 ]
+
+	@$(STRIP_EXCLUDES) $(CHOCO_BARE_UIDS) | { \
+		stale=0; \
+		while IFS= read -r entry; do \
+			f="$(SUITE_DIR)/$${entry%%:*}"; uid="$${entry#*:}"; \
+			if [ ! -f "$$f" ]; then \
+				echo "[STALE] $$entry is expected in $(CHOCO_BARE_UIDS) but $${entry%%:*} was not generated"; \
+				stale=$$((stale+1)); \
+			elif ! grep -qxF "$$uid;" "$$f"; then \
+				echo "[STALE] $$entry is expected in $(CHOCO_BARE_UIDS) but no longer emitted -- remove the entry"; \
+				stale=$$((stale+1)); \
+			fi; \
+		done; \
+		[ $$stale -eq 0 ] || { echo "$$stale stale entr(y|ies) in $(CHOCO_BARE_UIDS)."; false; }; \
 	}
 
 # CLI -v gating semantics (Sigil-Logic/clafer#20; regressions for the
@@ -331,7 +437,7 @@ validateDefaultFlagOutput:
 			echo "[FAIL] Alloy 6.2.0 rejects the default-flag output of $$m:"; \
 			printf '%s\n' "$$out" | sed 's/^/    /'; status=1; fi; \
 		if ! out=$$($(VALIDATE_CHOCO) "$$tmp/$$base.js" 2>&1) || \
-		   printf '%s\n' "$$out" | grep -q "Unhandled compilation error\|ReferenceError"; then \
+		   printf '%s\n' "$$out" | grep -q "Unhandled compilation error\|ReferenceError\|Failed assertion"; then \
 			echo "[FAIL] chocosolver rejects the default-flag output of $$m:"; \
 			printf '%s\n' "$$out" | sed 's/^/    /'; status=1; fi; \
 	done; \
@@ -409,9 +515,11 @@ endef
 # the time of writing, Alloy declines 5 models (mergeExpAndSetExp,
 # objectivesMinMax, primitiveTypesAndCoersions, product, reals),
 # Choco declines 3 of those (all but objectivesMinMax and product)
-# and also emits no .js for the 42 temporal tmp_* models, and the
-# HTML and Graph backends decline none -- hence the per-extension
-# counts: 157 .als / 117 .js / 162 .html / 162 .dot.  A declined
+# plus si18-unsupported-ref-target (a reference target it cannot
+# express, Sigil-Logic/clafer#18) and also emits no .js for the 42
+# temporal tmp_* models, and the HTML and Graph backends decline none
+# -- hence the per-extension counts over the 166 models: 161 .als /
+# 120 .js / 166 .html / 166 .dot.  A declined
 # model is absent from BOTH the generated tree and the .reg corpus of
 # its declining leg, so the counterpart invariant -- which relates
 # those two trees, not the .cfr suite -- needs no decliner carve-out.
@@ -498,6 +606,6 @@ clean:
 	@echo 'Removing *~'
 	@find . -type f -name '*~' -print0 | xargs -0 rm -f
 	@echo 'Removing discovery manifests'
-	@rm -f $(GEN_MANIFEST) $(ALLOY_MANIFEST) $(CHOCO_MANIFEST) \
+	@rm -f $(GEN_MANIFEST) $(ALLOY_MANIFEST) $(CHOCO_MANIFEST) $(CHOCO_EMISSION_MANIFEST) \
 		$(DIFF_GEN_MANIFEST) $(DIFF_GEN_MANIFEST).names \
 		$(DIFF_REG_MANIFEST) $(DIFF_REG_MANIFEST).names

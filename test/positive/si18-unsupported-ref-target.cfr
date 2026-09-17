@@ -1,0 +1,16 @@
+// Sigil-Logic/clafer#18: a reference target the chocosolver DSL cannot
+// express -- here a set expression mixing a clafer and an integer --
+// makes the Choco backend decline the whole model through its
+// unsupported-feature path ("Choco output unavailable because the
+// model contains: a reference target the Choco backend cannot express
+// (c0_mixed: ...)", exit 0, no .js) instead of emitting a silently
+// under-constrained model.  Alloy accepts the union, so the .als,
+// .html, and .dot outputs are still generated and baselined; the .js
+// is absent from both the generated tree and the .reg corpus, as for
+// every other declined model.
+
+abstract Person
+
+Alice : Person
+
+mixed -> Person ++ 1

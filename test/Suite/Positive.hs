@@ -161,6 +161,114 @@ case_local_name_colliding_with_uid_mentions_nothing = do
     (("none(c0_Target)" `isInfixOf` chocoCode) && not ("global(c0_Target)" `isInfixOf` chocoCode))
         @? "the Choco output must emit the locally bound c0_Target as a local, not global(c0_Target)"
 
+-- Sigil-Logic/clafer#18: the Choco generator emitted .refTo/.refToUnique
+-- only for a plain clafer target and dropped every other reference
+-- target -- set expressions over clafers, integer and string
+-- enumerations, `integer -- e` -- as a bare `cN_uid;` statement, or,
+-- for a single literal, emitted the primitive type without the
+-- literal.  chocosolver's AstRef takes exactly one target type, so such
+-- targets are now emitted as a carrier type plus a membership
+-- constraint on joinRef($this()); a target the chocosolver DSL cannot
+-- express declines Choco output through the unsupported-feature path,
+-- as reals do.  The expected texts below are the encodings validated
+-- against chocosolver -v in the #18 spike.
+
+si18_results :: String -> Map.Map ClaferMode CompilerResult
+si18_results model = fromRight $ compileOneFragment defaultClaferArgs{mode = [Alloy, Choco]} model
+
+si18_choco :: String -> String
+si18_choco model = outputCode $ fromJust $ Map.lookup Choco $ si18_results model
+
+si18_personModel :: String
+si18_personModel = "abstract Person\n    abstract Head\n\nAlice : Person\n    `Head\n\nElla : Person\n\n"
+
+si18_isBareStatement :: String -> Bool
+si18_isBareStatement l = take 1 l == "c" && take 1 (reverse l) == ";" && all (`notElem` ".(= ") l
+
+si18_assertEncoding :: String -> String -> String -> Assertion
+si18_assertEncoding variant model expected = do
+    let chocoCode = si18_choco model
+    (expected `isInfixOf` chocoCode)
+        @? (variant ++ ": expected the Choco output to contain\n" ++ expected ++ "but got\n" ++ chocoCode)
+    (not $ any si18_isBareStatement $ lines chocoCode)
+        @? (variant ++ ": the Choco output must not contain a bare cN_uid; statement:\n" ++ chocoCode)
+
+case_set_expression_ref_targets_over_clafers_are_encoded :: Assertion
+case_set_expression_ref_targets_over_clafers_are_encoded =
+    forM_ [ ("union", "friend -> Alice ++ Ella 2\n",
+             "c0_friend.refToUnique(c0_Person);\nc0_friend.addConstraint($in(joinRef($this()), union(global(c0_Alice), global(c0_Ella))));\n")
+          , ("intersection", "onlyAlice -> Alice ** Person\n",
+             "c0_onlyAlice.refToUnique(c0_Person);\nc0_onlyAlice.addConstraint($in(joinRef($this()), inter(global(c0_Alice), global(c0_Person))));\n")
+          , ("difference", "exceptElla -> Person -- Ella\n",
+             "c0_exceptElla.refToUnique(c0_Person);\nc0_exceptElla.addConstraint($in(joinRef($this()), diff(global(c0_Person), global(c0_Ella))));\n")
+          , ("bag", "buddies ->> Alice ++ Ella 2\n",
+             "c0_buddies.refTo(c0_Person);\nc0_buddies.addConstraint($in(joinRef($this()), union(global(c0_Alice), global(c0_Ella))));\n")
+          , ("join inside a set expression", "someone -> Person.Head ++ Ella\n",
+             "c0_someone.refToUnique(rc.getModel().getTypeRoot());\nc0_someone.addConstraint($in(joinRef($this()), union(join(global(c0_Person), c0_Head), global(c0_Ella))));\n")
+          ] $ \(variant, decl, expected) -> si18_assertEncoding variant (si18_personModel ++ decl) expected
+
+case_unrelated_union_ref_target_uses_the_type_root :: Assertion
+case_unrelated_union_ref_target_uses_the_type_root =
+    si18_assertEncoding "unrelated union" "A\nB\nr -> A ++ B\n"
+        "c0_r.refToUnique(rc.getModel().getTypeRoot());\nc0_r.addConstraint($in(joinRef($this()), union(global(c0_A), global(c0_B))));\n"
+
+case_integer_ref_targets_are_encoded :: Assertion
+case_integer_ref_targets_are_encoded =
+    forM_ [ ("enumeration", "grade -> 1, 2, 3\n",
+             "c0_grade.refToUnique(Int);\nc0_grade.addConstraint($in(joinRef($this()), union(union(constant(1), constant(2)), constant(3))));\n")
+          , ("single literal", "single -> 1\n",
+             "c0_single.refToUnique(Int);\nc0_single.addConstraint($in(joinRef($this()), constant(1)));\n")
+          , ("complement", "nonZero -> integer -- 0\n",
+             "c0_nonZero.refToUnique(Int);\nc0_nonZero.addConstraint(notIn(joinRef($this()), constant(0)));\n")
+          , ("complement algebra", "x -> integer -- 0 -- 1\n",
+             "c0_x.refToUnique(Int);\nc0_x.addConstraint(notIn(joinRef($this()), union(constant(0), constant(1))));\n")
+          , ("universe intersection", "y -> integer ** (1 ++ 2)\n",
+             "c0_y.refToUnique(Int);\nc0_y.addConstraint($in(joinRef($this()), union(constant(1), constant(2))));\n")
+          , ("finite difference", "z -> (1 ++ 2) -- 2\n",
+             "c0_z.refToUnique(Int);\nc0_z.addConstraint($in(joinRef($this()), diff(union(constant(1), constant(2)), constant(2))));\n")
+          ] $ \(variant, decl, expected) -> si18_assertEncoding variant decl expected
+
+case_integer_universe_ref_target_needs_no_restriction :: Assertion
+case_integer_universe_ref_target_needs_no_restriction = do
+    let chocoCode = si18_choco "u -> integer ++ 1\n"
+    ("c0_u.refToUnique(Int);\n" `isInfixOf` chocoCode && not ("c0_u.addConstraint" `isInfixOf` chocoCode))
+        @? ("integer ++ 1 is the whole integer domain and needs no restriction:\n" ++ chocoCode)
+
+case_string_ref_targets_are_encoded :: Assertion
+case_string_ref_targets_are_encoded =
+    forM_ [ ("single literal", "name -> \"Alice\"\n",
+             "c0_name.refToUnique(string);\nc0_name.addConstraint(equal(joinRef($this()), constant(\"\\\"Alice\\\"\")));\n")
+          , ("enumeration", "tag -> \"a\", \"b\"\n",
+             "c0_tag.refToUnique(string);\nc0_tag.addConstraint(or(equal(joinRef($this()), constant(\"\\\"a\\\"\")), equal(joinRef($this()), constant(\"\\\"b\\\"\"))));\n")
+          ] $ \(variant, decl, expected) -> si18_assertEncoding variant decl expected
+
+case_plain_ref_targets_keep_the_pre_18_emission :: Assertion
+case_plain_ref_targets_keep_the_pre_18_emission =
+    forM_ [ ("clafer", "likes -> Person\n", "c0_likes.refToUnique(c0_Person);\n")
+          , ("join path", "heads -> Person.Head *\n", "c0_heads.refToUnique(c0_Head);\n")
+          , ("bag of clafers", "likes ->> Person\n", "c0_likes.refTo(c0_Person);\n")
+          , ("integer", "n -> integer\n", "c0_n.refToUnique(Int);\n")
+          , ("string", "s -> string\n", "c0_s.refToUnique(string);\n")
+          ] $ \(variant, decl, expected) -> do
+        let chocoCode = si18_choco (si18_personModel ++ decl)
+        (expected `isInfixOf` chocoCode && not (".addConstraint(" `isInfixOf` chocoCode))
+            @? (variant ++ ": a plain target must keep the pre-#18 emission with no restriction:\n" ++ chocoCode)
+
+case_unsupported_ref_targets_decline_choco_output :: Assertion
+case_unsupported_ref_targets_decline_choco_output =
+    forM_ [ ("clafer/integer mix", "mixed -> Person ++ 1\n", "c0_mixed")
+          , ("string type in a set expression", "s -> string -- \"a\"\n", "c0_s")
+          , ("empty integer set", "e -> 1 -- integer\n", "c0_e")
+          ] $ \(variant, decl, uid) -> do
+        let results = si18_results (si18_personModel ++ decl)
+        case Map.lookup Choco results of
+            Just NoCompilerResult{reason = why} ->
+                (("Choco output unavailable because the model contains: " `isInfixOf` why) && (uid `isInfixOf` why))
+                    @? (variant ++ ": the decline reason must name the unsupported reference " ++ uid ++ ", got: " ++ why)
+            other -> assertFailure (variant ++ ": Choco output must be declined for a reference target the backend cannot express, got: " ++ show other)
+        (isJust $ Map.lookup Alloy results >>= \r -> case r of { CompilerResult{} -> Just (); _ -> Nothing })
+            @? (variant ++ ": the Alloy output must still be generated")
+
 case_nonempty_cards :: Assertion
 case_nonempty_cards = do
     claferModels <- positiveClaferModels

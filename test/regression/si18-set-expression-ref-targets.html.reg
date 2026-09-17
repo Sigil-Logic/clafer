@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="X-UA-Compatible" content="IE=9">
+<style>.identifier{}
+.keyword{font-weight: bold;}
+.tKeyword{font-style: oblique;}
+.reference{}
+.code { background-color: lightgray; padding: 5px 5px 5px 5px; border: 1px solid darkgray; margin-bottom: 15px;
+        font-family: Pragmata, Menlo, 'DejaVu LGC Sans Mono', 'DejaVu Sans Mono', Consolas, 'Everson Mono', 'Lucida Console', 'Andale Mono', 'Nimbus Mono L', 'Liberation Mono', FreeMono, 'Osaka Monospaced', Courier, 'New Courier', monospace; }
+.standalonecomment { color: green; font-style:italic }
+.inlinecomment { color: green; padding-left:20px; font-style:italic }
+.error{background-color: yellow; color: red }
+.deprecated{color: orange }
+.indent{padding-left:20px}
+a[href$='Lookup failed'] {color: red}
+a[href$='Uid not found'] {color: red}
+a[href$='Ambiguous name'] {color: yellow}
+</style></head>
+<body>
+
+<div>
+<span class="keyword">abstract</span> <span class="claferDecl" id="c0_Person">Person</span>
+  <div class="indent">
+  <span class="keyword">abstract</span> <span class="claferDecl" id="c0_Head">Head</span></div>
+</div>
+
+
+<div>
+<span class="claferDecl" id="c0_Alice">Alice</span><span class="keyword"> : </span><a href="#c0_Person"><span class="reference">Person</span></a>
+  <div class="indent">
+  `<a href="#c0_Head"><span class="reference">Head</span></a></div>
+</div>
+
+
+<div>
+<span class="claferDecl" id="c0_Ella">Ella</span><span class="keyword"> : </span><a href="#c0_Person"><span class="reference">Person</span></a></div>
+
+
+<div>
+<span class="claferDecl" id="c0_Guest">Guest</span></div>
+
+
+<div>
+<span class="claferDecl" id="c0_friend">friend</span><span class="keyword"> -> </span><a href="#c0_Alice"><span class="reference">Alice</span></a>++<a href="#c0_Ella"><span class="reference">Ella</span></a> 2</div>
+
+
+<div>
+<span class="claferDecl" id="c0_onlyAlice">onlyAlice</span><span class="keyword"> -> </span><a href="#c0_Alice"><span class="reference">Alice</span></a>**<a href="#c0_Person"><span class="reference">Person</span></a></div>
+
+
+<div>
+<span class="claferDecl" id="c0_exceptElla">exceptElla</span><span class="keyword"> -> </span><a href="#c0_Person"><span class="reference">Person</span></a>--<a href="#c0_Ella"><span class="reference">Ella</span></a></div>
+
+
+<div>
+<span class="claferDecl" id="c0_anyone">anyone</span><span class="keyword"> -> </span><a href="#c0_Person"><span class="reference">Person</span></a>++<a href="#c0_Guest"><span class="reference">Guest</span></a></div>
+
+
+<div>
+<span class="claferDecl" id="c0_heads">heads</span><span class="keyword"> -> </span><a href="#c0_Person"><span class="reference">Person</span></a>.<a href="#c0_Head"><span class="reference">Head</span></a></div>
+
+
+<div>
+<span class="claferDecl" id="c0_grade">grade</span><span class="keyword"> -> </span>1, 2, 3</div>
+
+
+<div>
+<span class="claferDecl" id="c0_nonZero">nonZero</span><span class="keyword"> -> </span><a href="#integer"><span class="reference">integer</span></a>--0</div>
+
+
+<div>
+<span class="claferDecl" id="c0_single">single</span><span class="keyword"> -> </span>1</div>
+
+
+<div>
+<span class="claferDecl" id="c0_notZeroOrOne">notZeroOrOne</span><span class="keyword"> -> </span><a href="#integer"><span class="reference">integer</span></a>--0--1</div>
+
+
+<div>
+<span class="claferDecl" id="c0_smallOrAny">smallOrAny</span><span class="keyword"> -> </span><a href="#integer"><span class="reference">integer</span></a>**1++2</div>
+
+
+<div>
+<span class="claferDecl" id="c0_name">name</span><span class="keyword"> -> </span>"Alice"</div>
+
+
+<div>
+<span class="claferDecl" id="c0_tag">tag</span><span class="keyword"> -> </span>"a", "b"</div>
+
+
+<div>
+<span class="keyword">assert [</span> <a href="#c0_Alice"><span class="reference">Alice</span></a> in <a href="#c0_friend"><span class="reference">friend</span></a>.<span class="keyword">dref</span> &amp;&amp; <a href="#c0_Ella"><span class="reference">Ella</span></a> in <a href="#c0_friend"><span class="reference">friend</span></a>.<span class="keyword">dref</span> <span class="keyword">]</span></div>
+
+
+<div>
+<span class="keyword">assert [</span> <a href="#c0_onlyAlice"><span class="reference">onlyAlice</span></a> = <a href="#c0_Alice"><span class="reference">Alice</span></a> <span class="keyword">]</span></div>
+
+
+<div>
+<span class="keyword">assert [</span> <a href="#c0_exceptElla"><span class="reference">exceptElla</span></a> = <a href="#c0_Alice"><span class="reference">Alice</span></a> <span class="keyword">]</span></div>
+
+
+<div>
+<span class="keyword">assert [</span> <a href="#c0_anyone"><span class="reference">anyone</span></a> in <a href="#c0_Person"><span class="reference">Person</span></a>++<a href="#c0_Guest"><span class="reference">Guest</span></a> <span class="keyword">]</span></div>
+
+
+<div>
+<span class="keyword">assert [</span> <a href="#c0_grade"><span class="reference">grade</span></a> &gt;= 1 &amp;&amp; <a href="#c0_grade"><span class="reference">grade</span></a> &lt;= 3 <span class="keyword">]</span></div>
+
+
+<div>
+<span class="keyword">assert [</span> <a href="#c0_nonZero"><span class="reference">nonZero</span></a> != 0 <span class="keyword">]</span></div>
+
+
+<div>
+<span class="keyword">assert [</span> <a href="#c0_single"><span class="reference">single</span></a> = 1 <span class="keyword">]</span></div>
+
+
+<div>
+<span class="keyword">assert [</span> <a href="#c0_notZeroOrOne"><span class="reference">notZeroOrOne</span></a> != 0 &amp;&amp; <a href="#c0_notZeroOrOne"><span class="reference">notZeroOrOne</span></a> != 1 <span class="keyword">]</span></div>
+
+
+<div>
+<span class="keyword">assert [</span> <a href="#c0_smallOrAny"><span class="reference">smallOrAny</span></a> = 1 &#124;&#124; <a href="#c0_smallOrAny"><span class="reference">smallOrAny</span></a> = 2 <span class="keyword">]</span></div>
+
+
+<div>
+<span class="keyword">assert [</span> <a href="#c0_name"><span class="reference">name</span></a> = "Alice" <span class="keyword">]</span></div>
+
+
+<div>
+<span class="keyword">assert [</span> <a href="#c0_tag"><span class="reference">tag</span></a> = "a" &#124;&#124; <a href="#c0_tag"><span class="reference">tag</span></a> = "b" <span class="keyword">]</span></div>
+
+</body>
+</html>

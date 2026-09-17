@@ -21,7 +21,7 @@
  SOFTWARE.
 -}
 -- | Generates JS representation of IR for the <https://github.com/gsdlab/chocosolver Chocosolver>.
-module Language.Clafer.Generator.Choco (genCModule) where
+module Language.Clafer.Generator.Choco (genCModule, chocoUnsupportedRefTargets) where
 
 import Control.Applicative
 import Control.Lens.Plated hiding (rewrite)
@@ -34,6 +34,115 @@ import Language.Clafer.Common
 import Language.Clafer.Intermediate.Intclafer
 import Language.Clafer.Front.LexClafer
 
+
+-- | A reference target classified for the Choco backend
+-- (Sigil-Logic/clafer#18).  chocosolver's @AstRef@ takes exactly one
+-- target type (@refTo(T)@ / @refToUnique(T)@), so a target that is not
+-- a plain clafer is emitted as a carrier type plus a membership
+-- constraint on @joinRef($this())@.  This is the intermediate form both
+-- the emission (@genRefTarget@ in 'genCModule') and the support check
+-- ('chocoUnsupportedRefTargets') derive from, so the two cannot drift.
+data RefTargetSet
+  = ClaferSet [UID] String   -- ^ candidate carrier UIDs, and the target as a JS set expression
+  | IntSet IntRefSet         -- ^ a set of integers
+  | StrSet [String]          -- ^ a finite string enumeration (the literals)
+
+-- | Sets of integers.  chocosolver has no expression for the integer
+-- domain (@global(Int)@ does not compile), so @integer@ and its
+-- complements are tracked symbolically: a co-finite set is emitted
+-- through @notIn@, and the three set operators are folded over
+-- finite (F), co-finite (C), and universe (U) operands by the usual
+-- identities (@C -- F = C@ of the union, @C ** F = F@ of the
+-- difference, and so on).
+data IntRefSet
+  = IntUniverse              -- ^ @integer@
+  | IntFinite String         -- ^ a finite set: a JS set expression over @constant(k)@
+  | IntCoFinite String       -- ^ @integer -- S@: the finite JS set expression S it excludes
+
+-- | A plain reference target: a clafer, or a join path (only the path's
+-- last clafer types the reference, as in the Alloy backend's refType).
+-- These keep the pre-#18 emission byte-for-byte.
+isPlainRefTarget :: PExp -> Bool
+isPlainRefTarget PExp{_exp = IClaferId{}} = True
+isPlainRefTarget PExp{_exp = IFunExp "." [_, r]} = isPlainRefTarget r
+isPlainRefTarget _ = False
+
+-- | Classifies a reference target that is not plain, given a renderer
+-- for its clafer-typed sub-expressions (the generator's constraint
+-- printer; the support check passes a dummy).  Left carries the reason
+-- the Choco backend cannot express the target.
+classifyRefTarget :: (PExp -> String) -> PExp -> Either String RefTargetSet
+classifyRefTarget render = go
+  where
+    go p@PExp{_exp = IClaferId{_sident}}
+      | _sident `elem` [integerType, intType] = Right $ IntSet IntUniverse
+      | isPrimitive _sident = Left $ "the " ++ _sident ++ " type inside a set expression"
+      | otherwise           = Right $ ClaferSet [_sident] (render p)
+    go p@PExp{_exp = IFunExp "." [_, r]} = case go r of
+      Right (ClaferSet uids _) -> Right $ ClaferSet uids (render p)
+      Right _                  -> Left "a join whose target is not a clafer"
+      Left why                 -> Left why
+    go PExp{_exp = IInt k} = Right $ IntSet $ IntFinite $ "constant(" ++ show k ++ ")"
+    go PExp{_exp = IStr t} = Right $ StrSet [t]
+    go PExp{_exp = IFunExp op' [a, b]}
+      | op' `elem` ["++", "**", "--"] = do
+          a' <- go a
+          b' <- go b
+          combine op' a' b'
+    go _ = Left "an expression that is not a set expression over clafers, integers, or strings"
+
+    -- the carriers of both operands are kept for every operator: the
+    -- values of `a ** b` and `a -- b` lie in `a`, so a's carriers alone
+    -- would be sound, but the least common super clafer of all leaves
+    -- is the type chocosolver needs for the constraints that later
+    -- mention the reference (a carrier narrowed to `Alice` makes an
+    -- `Ella not in onlyAlice` assertion ill-typed: disjoint types)
+    combine op' (ClaferSet ua ja) (ClaferSet ub jb) = Right $ ClaferSet (ua ++ ub) (setOp op' ja jb)
+    combine op' (IntSet a) (IntSet b) = IntSet <$> intOp op' a b
+    combine "++" (StrSet a) (StrSet b) = Right $ StrSet $ nub $ a ++ b
+    combine "**" (StrSet a) (StrSet b) = nonEmptyStr $ a `intersect` b
+    combine "--" (StrSet a) (StrSet b) = nonEmptyStr $ a \\ b
+    combine _ _ _ = Left "a set expression mixing clafers, integers, and strings"
+
+    nonEmptyStr [] = Left "an empty set of strings"
+    nonEmptyStr ts = Right $ StrSet ts
+
+    setOp "++" a b = "union(" ++ a ++ ", " ++ b ++ ")"
+    setOp "**" a b = "inter(" ++ a ++ ", " ++ b ++ ")"
+    setOp _    a b = "diff(" ++ a ++ ", " ++ b ++ ")"
+
+    intOp "++" IntUniverse _ = Right IntUniverse
+    intOp "++" _ IntUniverse = Right IntUniverse
+    intOp "++" (IntFinite a)   (IntFinite b)   = Right $ IntFinite   $ setOp "++" a b
+    intOp "++" (IntCoFinite a) (IntFinite b)   = Right $ IntCoFinite $ setOp "--" a b  -- ¬a ∪ b = ¬(a − b)
+    intOp "++" (IntFinite a)   (IntCoFinite b) = Right $ IntCoFinite $ setOp "--" b a  -- a ∪ ¬b = ¬(b − a)
+    intOp "++" (IntCoFinite a) (IntCoFinite b) = Right $ IntCoFinite $ setOp "**" a b  -- ¬a ∪ ¬b = ¬(a ∩ b)
+    intOp "**" IntUniverse x = Right x
+    intOp "**" x IntUniverse = Right x
+    intOp "**" (IntFinite a)   (IntFinite b)   = Right $ IntFinite   $ setOp "**" a b
+    intOp "**" (IntCoFinite a) (IntFinite b)   = Right $ IntFinite   $ setOp "--" b a  -- ¬a ∩ b = b − a
+    intOp "**" (IntFinite a)   (IntCoFinite b) = Right $ IntFinite   $ setOp "--" a b  -- a ∩ ¬b = a − b
+    intOp "**" (IntCoFinite a) (IntCoFinite b) = Right $ IntCoFinite $ setOp "++" a b  -- ¬a ∩ ¬b = ¬(a ∪ b)
+    intOp "--" _ IntUniverse = Left "an empty set of integers (`-- integer`)"
+    intOp "--" IntUniverse (IntFinite a)   = Right $ IntCoFinite a
+    intOp "--" IntUniverse (IntCoFinite a) = Right $ IntFinite a                        -- U − ¬a = a
+    intOp "--" (IntFinite a)   (IntFinite b)   = Right $ IntFinite   $ setOp "--" a b
+    intOp "--" (IntCoFinite a) (IntFinite b)   = Right $ IntCoFinite $ setOp "++" a b  -- ¬a − b = ¬(a ∪ b)
+    intOp "--" (IntFinite a)   (IntCoFinite b) = Right $ IntFinite   $ setOp "**" a b  -- a − ¬b = a ∩ b
+    intOp "--" (IntCoFinite a) (IntCoFinite b) = Right $ IntFinite   $ setOp "--" b a  -- ¬a − ¬b = b − a
+    intOp op' _ _ = Left $ "the operator " ++ op' ++ " over integer sets"
+
+-- | The reference-declaring clafers whose target the Choco backend
+-- cannot express, each with the reason (Sigil-Logic/clafer#18).
+-- Language.Clafer.generate declines Choco output for a model with any,
+-- through the same unsupported-feature path it uses for reals, instead
+-- of emitting a silently under-constrained model.
+chocoUnsupportedRefTargets :: IModule -> [(UID, String)]
+chocoUnsupportedRefTargets iModule =
+  [ (_uid, why)
+  | IClafer{_uid, _reference = Just IReference{_ref = refExp}} <- (universeOn biplate iModule :: [IClafer])
+  , not $ isPlainRefTarget refExp
+  , Left why <- [classifyRefTarget (const "") refExp] ]
 
 -- | Choco 3 code generation
 genCModule :: (IModule, GEnv) -> [(UID, Integer)] -> [Token]     -> Result
@@ -123,25 +232,74 @@ genCModule (imodule@IModule{_mDecls}, genv') scopes  otherTokens' =
     genSuperRefConstraintAssertGoal :: String -> IElement -> Result
     genSuperRefConstraintAssertGoal _ IEClafer{_iClafer=IClafer{_uid, _super=Nothing, _reference=Nothing, _elements}}
         = genSuperRefConstraintAssertGoal _uid =<< _elements
-    genSuperRefConstraintAssertGoal _ (IEClafer c@IClafer{_uid, _card, _super, _reference, _elements})
+    genSuperRefConstraintAssertGoal _ (IEClafer IClafer{_uid, _super, _reference, _elements})
         = _uid
         ++ prop "extending" (superOf _uid)
-        ++ (case (getReference c, _reference) of
-             ([target], Just (IReference True _ _))  -> ".refToUnique(" ++ genTarget target ++ ")"
-             ([target], Just (IReference False _ _)) -> ".refTo(" ++ genTarget target ++ ")"
-             _                                       -> "")
+        ++ refClause
         ++ ";\n"
+        ++ refRestriction
         ++ (genSuperRefConstraintAssertGoal _uid =<< _elements)
         where
-            genTarget "integer" = "Int"
-            genTarget "int" = "Int"
-            genTarget target = target
+            (refClause, refRestriction) = maybe ("", "") (genRefTarget _uid) _reference
     genSuperRefConstraintAssertGoal "root" (IEConstraint True pexp) = "Constraint(" ++ genConstraintPExp pexp ++ ");\n"
     genSuperRefConstraintAssertGoal pUID (IEConstraint True pexp) = pUID ++ ".addConstraint(" ++ genConstraintPExp pexp ++ ");\n"
     genSuperRefConstraintAssertGoal _ (IEConstraint False pexp) = "assert(" ++ genConstraintPExp pexp ++ ");\n"
     genSuperRefConstraintAssertGoal _ (IEGoal True PExp{_exp=IFunExp _ [pexp]})  = "max(" ++ genConstraintPExp pexp ++ ");\n"
     genSuperRefConstraintAssertGoal _ (IEGoal False PExp{_exp=IFunExp _ [pexp]})  = "min(" ++ genConstraintPExp pexp ++ ");\n"
     genSuperRefConstraintAssertGoal _ _ = ""
+
+    -- | Reference-target emission (Sigil-Logic/clafer#18): the
+    -- .refTo/.refToUnique clause, and -- for a target that is not a
+    -- plain clafer -- the constraint restricting the referred value to
+    -- the target set, as its own statement after the clause.  Before
+    -- #18 every non-plain target was dropped (a bare `cN_uid;`
+    -- statement, or the primitive type without its literal).
+    genRefTarget :: UID -> IReference -> (String, String)
+    genRefTarget uid' IReference{_isSet, _ref = refExp} =
+        case encodeRefTarget refExp of
+            Right (carrier, restriction) ->
+                ( (if _isSet then ".refToUnique(" else ".refTo(") ++ carrier ++ ")"
+                , maybe "" (\r -> uid' ++ ".addConstraint(" ++ r ++ ");\n") restriction )
+            Left why -> error $ "[bug] Choco.genRefTarget: " ++ uid' ++ " refers to " ++ why
+                                ++ "; Language.Clafer.generate must decline Choco output for this model (chocoUnsupportedRefTargets)"
+
+    -- | The carrier type and the optional restriction of a reference target.
+    encodeRefTarget :: PExp -> Either String (String, Maybe String)
+    encodeRefTarget refExp
+        | isPlainRefTarget refExp = Right (genTarget $ plainRefTargetId refExp, Nothing)
+        | otherwise = encode <$> classifyRefTarget genConstraintPExp refExp
+        where
+            encode (ClaferSet uids js)       = (carrierOf uids, Just $ "$in(" ++ thisRef ++ ", " ++ js ++ ")")
+            encode (IntSet IntUniverse)      = ("Int", Nothing)
+            encode (IntSet (IntFinite js))   = ("Int", Just $ "$in(" ++ thisRef ++ ", " ++ js ++ ")")
+            encode (IntSet (IntCoFinite js)) = ("Int", Just $ "notIn(" ++ thisRef ++ ", " ++ js ++ ")")
+            -- chocosolver rejects a union of string constants, so a
+            -- string enumeration is a disjunction of equalities
+            encode (StrSet ts)               = ("string", Just $ foldl1 (\acc e -> "or(" ++ acc ++ ", " ++ e ++ ")")
+                                                  [ "equal(" ++ thisRef ++ ", constant(" ++ show t ++ "))" | t <- ts ])
+            thisRef = "joinRef($this())"
+
+    plainRefTargetId PExp{_exp = IClaferId{_sident}} = _sident
+    plainRefTargetId PExp{_exp = IFunExp "." [_, r]} = plainRefTargetId r
+    plainRefTargetId p = error $ "[bug] Choco.plainRefTargetId: not a plain reference target: " ++ show p
+
+    genTarget "integer" = "Int"
+    genTarget "int" = "Int"
+    genTarget target = target
+
+    -- | The least common super clafer of the candidate carriers, or
+    -- chocosolver's universal type root when they share none (a union
+    -- of unrelated clafers).
+    carrierOf :: [UID] -> String
+    carrierOf uids = case nub uids of
+        []     -> typeRoot
+        (u:us) -> case [ a | a <- superChain u, all (elem a . superChain) us ] of
+            (a:_) -> a
+            []    -> typeRoot
+        where typeRoot = "rc.getModel().getTypeRoot()"
+
+    superChain :: UID -> [UID]
+    superChain u = u : maybe [] superChain (superOf u)
 
 
     rewrite :: PExp -> PExp
