@@ -383,3 +383,115 @@ case_stringEqual :: Assertion
 case_stringEqual = do
     let strMap = stringMap $ fromJust $ Map.lookup Alloy $ fromRight $ compileOneFragment defaultClaferArgs "A\n    text1 -> string = \"some text\"\n    text2 -> string = \"some text\""
     (Map.size strMap) == 1 @? "Error: same string assigned to differnet numbers!"
+
+-- Sigil-Logic/clafer#29: dotted paths as super types (`h : Person.Head`).
+-- The resolver normalizes the path to the abstract clafer it names, so both
+-- backends emit ordinary inheritance for it -- exactly what the plain form
+-- `h : Head` yields when Head is unique.
+
+si29_resultsWith :: ClaferArgs -> String -> Map.Map ClaferMode CompilerResult
+si29_resultsWith args' model = fromRight $ compileOneFragment args'{mode = [Alloy, Choco]} model
+
+si29_alloyWith, si29_chocoWith :: ClaferArgs -> String -> String
+si29_alloyWith args' model = outputCode $ fromJust $ Map.lookup Alloy $ si29_resultsWith args' model
+si29_chocoWith args' model = outputCode $ fromJust $ Map.lookup Choco $ si29_resultsWith args' model
+
+si29_alloy, si29_choco :: String -> String
+si29_alloy = si29_alloyWith defaultClaferArgs
+si29_choco = si29_chocoWith defaultClaferArgs
+
+-- | The reproducer from the issue, parameterized over Ella's super type.
+si29_personModel :: String -> String
+si29_personModel superType = "abstract Person\n    abstract Head\n\nAlice : Person\n    `Head\n\nElla : Person\n    h : " ++ superType ++ "\n"
+
+-- | Two nested abstracts named Head, parameterized over both super types.
+si29_twoHeadsModel :: String -> String -> String
+si29_twoHeadsModel ellaSuper rexSuper = "abstract Person\n    abstract Head\n\nabstract Animal\n    abstract Head\n\nElla : Person\n    h : " ++ ellaSuper ++ "\n\nRex : Animal\n    h : " ++ rexSuper ++ "\n"
+
+si29_assertContains :: String -> String -> String -> Assertion
+si29_assertContains label expected code =
+    (expected `isInfixOf` code) @? (label ++ ": expected `" ++ expected ++ "` in:\n" ++ code)
+
+case_si29_dotted_super_emits_inheritance_in_both_backends :: Assertion
+case_si29_dotted_super_emits_inheritance_in_both_backends = do
+    let alloyCode = si29_alloy $ si29_personModel "Person.Head"
+        chocoCode = si29_choco $ si29_personModel "Person.Head"
+    si29_assertContains "Alloy" "one sig c0_h extends c0_Head" alloyCode
+    si29_assertContains "Alloy (redefinition within Ella)" "{ r_c0_h in r_c0_Head }" alloyCode
+    si29_assertContains "Choco" "c0_h.extending(c0_Head);" chocoCode
+    (not $ any si18_isBareStatement $ lines chocoCode) @? ("Choco: no bare statement may remain:\n" ++ chocoCode)
+
+case_si29_dotted_super_equals_plain_super :: Assertion
+case_si29_dotted_super_equals_plain_super = do
+    (si29_alloy (si29_personModel "Person.Head") == si29_alloy (si29_personModel "Head"))
+        @? "the Alloy output of `h : Person.Head` must equal that of `h : Head`"
+    (si29_choco (si29_personModel "Person.Head") == si29_choco (si29_personModel "Head"))
+        @? "the Choco output of `h : Person.Head` must equal that of `h : Head`"
+
+case_si29_dotted_super_disambiguates_same_named_abstracts :: Assertion
+case_si29_dotted_super_disambiguates_same_named_abstracts = do
+    (not $ compiledCheck $ compileOneFragment defaultClaferArgs $ si29_twoHeadsModel "Head" "Head")
+        @? "the plain form `h : Head` must be rejected as ambiguous"
+    let alloyCode = si29_alloy $ si29_twoHeadsModel "Person.Head" "Animal.Head"
+        chocoCode = si29_choco $ si29_twoHeadsModel "Person.Head" "Animal.Head"
+    si29_assertContains "Alloy (Ella)" "one sig c0_h extends c0_Head" alloyCode
+    si29_assertContains "Alloy (Rex)" "one sig c1_h extends c1_Head" alloyCode
+    si29_assertContains "Choco (Ella)" "c0_h.extending(c0_Head);" chocoCode
+    si29_assertContains "Choco (Rex)" "c1_h.extending(c1_Head);" chocoCode
+
+case_si29_dotted_super_walks_direct_children :: Assertion
+case_si29_dotted_super_walks_direct_children = do
+    let model = "abstract Vehicle\n    abstract Engine\n        abstract Cylinder\n\nCar : Vehicle\n    `Engine\n        c : Vehicle.Engine.Cylinder 2\n"
+    si29_assertContains "Alloy" "sig c0_c extends c0_Cylinder" $ si29_alloy model
+    si29_assertContains "Choco" "c0_c.extending(c0_Cylinder);" $ si29_choco model
+
+-- gsdlab/clafer#67: a top-level abstract clafer extending a nested abstract
+-- clafer is relocated next to its super; the path form must take that route too.
+case_si29_dotted_super_relocates_top_level_abstract :: Assertion
+case_si29_dotted_super_relocates_top_level_abstract = do
+    let model = "abstract Person\n    abstract Head\n\nabstract Bust : Person.Head\n\nBob : Person\n    b : Bust\n"
+    si29_assertContains "Alloy" "abstract sig c0_Bust extends c0_Head" $ si29_alloy model
+    si29_assertContains "Choco" "c0_Bust.extending(c0_Head);" $ si29_choco model
+    si29_assertContains "Choco (extender of the relocated abstract)" "c0_b.extending(c0_Bust);" $ si29_choco model
+
+-- The first segment prefers a top-level clafer: with both a top-level Head
+-- and Person.Head in scope, `Head.Eye` names the top-level one's Eye (the
+-- plain form `: Head` is ambiguous here, so the path is the only way).  The
+-- model is all-abstract, so it is compiled with keep_unused: under the
+-- default flags the optimizer would prune every clafer and emit nothing.
+case_si29_dotted_super_prefers_top_level_first_segment :: Assertion
+case_si29_dotted_super_prefers_top_level_first_segment = do
+    let model = "abstract Head\n    abstract Eye\n\nabstract Person\n    abstract Head\n\nabstract BigEye : Head.Eye\n"
+        keep  = defaultClaferArgs{keep_unused = True}
+    si29_assertContains "Alloy" "abstract sig c0_BigEye extends c0_Eye" $ si29_alloyWith keep model
+    si29_assertContains "Choco" "c0_BigEye.extending(c0_Eye);" $ si29_chocoWith keep model
+
+-- The HTML and Graph printers render the path through the resolver's single
+-- normalized reference: every segment is linked to the clafer it names, and
+-- the inheritance edge is drawn as it is for a plain super type.
+case_si29_dotted_super_is_linked_in_html_and_graph :: Assertion
+case_si29_dotted_super_is_linked_in_html_and_graph = do
+    let results  = fromRight $ compileOneFragment defaultClaferArgs{mode = [Html, Graph]} $ si29_personModel "Person.Head"
+        htmlCode = outputCode $ fromJust $ Map.lookup Html results
+        dotCode  = outputCode $ fromJust $ Map.lookup Graph results
+    si29_assertContains "HTML" "<a href=\"#c0_Person\"><span class=\"reference\">Person</span></a>.<a href=\"#c0_Head\"><span class=\"reference\">Head</span></a>" htmlCode
+    (not $ "href=\"#Head\"" `isInfixOf` htmlCode) @? ("HTML: no dangling link to the bare ident may remain:\n" ++ htmlCode)
+    si29_assertContains "Graph" "\"c0_Ella\" -> \"c0_Head\"" dotCode
+
+case_si29_dotted_super_errors_are_specific :: Assertion
+case_si29_dotted_super_errors_are_specific =
+    forM_ [ ("missing child", si29_personModel "Person.Nose"
+            , "No superclafer found: Person.Nose ('Nose' is not a child of 'Person')")
+          , ("missing grandchild", si29_personModel "Person.Head.Eye"
+            , "No superclafer found: Person.Head.Eye ('Eye' is not a child of 'Person.Head')")
+          , ("concrete target", "abstract Person\n    abstract Head\n    likes -> Person ?\n\nElla : Person\n    h : Person.likes\n"
+            , "No superclafer found: Person.likes ('likes' is not abstract)")
+          , ("unknown root", si29_personModel "Nobody.Head"
+            , "No superclafer found: Nobody.Head (no clafer named 'Nobody')")
+          , ("ambiguous nested root", "abstract Person\n    abstract Head\n        abstract Eye\n\nAlice : Person\n    `Head\n\nElla : Person\n    `Head\n        e : Head.Eye\n"
+            , "No superclafer found: Head.Eye ('Head' is ambiguous, start the path at a top-level clafer instead; candidates: c0_Person.c0_Head, c0_Alice.c1_Head, c0_Ella.c2_Head)")
+          , ("set expression", "abstract Person\nabstract Animal\n\nElla : (Person ++ Animal)\n"
+            , "Only a clafer name or a dotted path of clafer names (e.g., Person.Head) is allowed as a super type") ] $ \(variant, model, expected) ->
+        case compileOneFragment defaultClaferArgs model of
+            Left errors -> (expected `isInfixOf` show errors) @? (variant ++ ": expected `" ++ expected ++ "` in:\n" ++ show errors)
+            Right _     -> assertFailure (variant ++ ": the model is not expected to compile")

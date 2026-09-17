@@ -41,6 +41,7 @@ edge [fontname=Sans fontsize=11];
 "c0_Alice" -> "c0_Head" [arrowhead=vee arrowtail=diamond dir=both style=solid constraint=true weight=5 minlen=2 arrowsize=0.6 penwidth=0.5 ];
 "c0_Ella" [label="Ella : Person" URL="#c0_Ella" tooltip="Ella : Person&#10;  h : Person.Head&#10;  [ no likes ]&#10;"];
 "c0_Ella" -> "c0_Person" [arrowhead=onormal constraint=true weight=100];
+"c0_Ella" -> "c0_Head" [arrowhead=vee arrowtail=diamond dir=both style=solid weight=10 color=gray arrowsize=0.6 minlen=2 penwidth=0.5 constraint=true];
 "c0_heads" [label="heads -&gt; Person.Head *" URL="#c0_heads" tooltip="heads -&gt; Person.Head *&#10;"];
 "c0_friend" [label="friend -&gt; Alice++Ella *" URL="#c0_friend" tooltip="friend -&gt; Alice++Ella *&#10;"];
 "c0_onlyAlice" [label="onlyAlice -&gt; Alice**Person" URL="#c0_onlyAlice" tooltip="onlyAlice -&gt; Alice**Person&#10;"];

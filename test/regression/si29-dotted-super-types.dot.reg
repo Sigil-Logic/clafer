@@ -1,0 +1,30 @@
+digraph "si29-dotted-super-types"
+{
+rankdir=BT;
+ranksep=0.3;
+nodesep=0.1;
+graph [fontname=Sans fontsize=11];
+node [shape=box color=lightgray fontname=Sans fontsize=11 margin="0.02,0.02" height=0.2 ];
+edge [fontname=Sans fontsize=11];
+"c0_Person" [label="abstract Person" URL="#c0_Person" tooltip="abstract Person&#10;  abstract Head&#10;"];
+"c0_Head" [label="abstract Head" URL="#c0_Head" tooltip="abstract Head&#10;"];
+"c0_Animal" [label="abstract Animal" URL="#c0_Animal" tooltip="abstract Animal&#10;  abstract Head&#10;"];
+"c1_Head" [label="abstract Head" URL="#c1_Head" tooltip="abstract Head&#10;"];
+"c0_Ella" [label="Ella : Person" URL="#c0_Ella" tooltip="Ella : Person&#10;  h : Person.Head&#10;"];
+"c0_Ella" -> "c0_Person" [arrowhead=onormal constraint=true weight=100];
+"c0_Ella" -> "c0_Head" [arrowhead=vee arrowtail=diamond dir=both style=solid weight=10 color=gray arrowsize=0.6 minlen=2 penwidth=0.5 constraint=true];
+"c0_Rex" [label="Rex : Animal" URL="#c0_Rex" tooltip="Rex : Animal&#10;  h : Animal.Head&#10;"];
+"c0_Rex" -> "c0_Animal" [arrowhead=onormal constraint=true weight=100];
+"c0_Rex" -> "c1_Head" [arrowhead=vee arrowtail=diamond dir=both style=solid weight=10 color=gray arrowsize=0.6 minlen=2 penwidth=0.5 constraint=true];
+"c0_Vehicle" [label="abstract Vehicle" URL="#c0_Vehicle" tooltip="abstract Vehicle&#10;  abstract Engine&#10;    abstract Cylinder&#10;"];
+"c0_Engine" [label="abstract Engine" URL="#c0_Engine" tooltip="abstract Engine&#10;  abstract Cylinder&#10;"];
+"c0_Cylinder" [label="abstract Cylinder" URL="#c0_Cylinder" tooltip="abstract Cylinder&#10;"];
+"c0_Car" [label="Car : Vehicle" URL="#c0_Car" tooltip="Car : Vehicle&#10;  `Engine&#10;    c : Vehicle.Engine.Cylinder 2&#10;"];
+"c0_Car" -> "c0_Vehicle" [arrowhead=onormal constraint=true weight=100];
+"c0_Car" -> "c0_Engine" [arrowhead=vee arrowtail=diamond dir=both style=solid constraint=true weight=5 minlen=2 arrowsize=0.6 penwidth=0.5 ];
+"c0_Bust" [label="abstract Bust : Person.Head" URL="#c0_Bust" tooltip="abstract Bust : Person.Head&#10;"];
+"c0_Bust" -> "c0_Head" [arrowhead=onormal constraint=true weight=100];
+"c0_Bob" [label="Bob : Person" URL="#c0_Bob" tooltip="Bob : Person&#10;  b : Bust&#10;"];
+"c0_Bob" -> "c0_Person" [arrowhead=onormal constraint=true weight=100];
+"c0_Bob" -> "c0_Bust" [arrowhead=vee arrowtail=diamond dir=both style=solid weight=10 color=gray arrowsize=0.6 minlen=2 penwidth=0.5 constraint=true];
+}

@@ -19,10 +19,11 @@
  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  SOFTWARE.
 -}
-module Language.Clafer.Intermediate.Tracing (traceIrModule, traceAstModule, Ast(..), printAstNode) where
+module Language.Clafer.Intermediate.Tracing (traceIrModule, traceAstModule, traceSuperUid, Ast(..), printAstNode) where
 
 import Data.Map (Map)
 import qualified Data.Map as Map
+import Data.Maybe (listToMaybe)
 import Language.Clafer.Front.AbsClafer
 import Language.Clafer.Front.PrintClafer (printTree)
 import Language.Clafer.Intermediate.Intclafer
@@ -36,6 +37,15 @@ traceIrModule = foldMapIR getMap
     getMap (IRPExp (p@PExp{_inPos = s})) = insert s (IRPExp p) Map.empty
     getMap (IRClafer (c@IClafer{_cinPos = s})) = insert s (IRClafer c) Map.empty
     getMap _ = Map.empty
+
+-- | The UID of the clafer that a resolved super-type expression at the given
+-- span names.  The resolver normalizes every super type -- a plain name or a
+-- dotted path such as @Person.Head@ (Sigil-Logic/clafer#29) -- to a single
+-- reference to the target clafer, traced at the whole expression's span, so
+-- printers that render a path's segments recover the target here rather than
+-- from per-segment trace entries, which no longer exist.
+traceSuperUid :: Span -> Map Span [Ir] -> Maybe String
+traceSuperUid s irMap = listToMaybe [ uid' | IRPExp PExp{_exp = IClaferId{_sident = uid'}} <- Map.findWithDefault [] s irMap ]
 
 traceAstModule :: Module -> Map Span [Ast]
 traceAstModule x =

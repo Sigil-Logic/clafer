@@ -95,7 +95,7 @@ data IClafer
     , _ident :: CName         -- ^ name declared in the model
     , _uid :: UID             -- ^ a unique identifier
     , _parentUID :: UID       -- ^ "root" if top-level concrete, "clafer" if top-level abstract, "" if unresolved or for root clafer, otherwise UID of the parent clafer
-    , _super :: Maybe PExp    -- ^ superclafer - only allowed PExp is IClaferId. Nothing = default super "clafer"
+    , _super :: Maybe PExp    -- ^ superclafer - only allowed PExp is IClaferId (the resolver normalizes dotted paths such as Person.Head to it, Sigil-Logic/clafer#29). Nothing = default super "clafer"
     , _reference :: Maybe IReference -- ^ reference type, bag or set
     , _card :: Maybe Interval -- ^ clafer cardinality
     , _glCard :: Interval     -- ^ (o) global cardinality

@@ -47,8 +47,8 @@ resolveNModule (imodule, genv') =
   do
     let
       unresolvedDecls = _mDecls imodule
-      abstractClafers = filter _isAbstract $ bfsClafers $ toClafers unresolvedDecls
-    resolvedDecls <- mapM (resolveNElement abstractClafers) unresolvedDecls
+      allClafers = bfsClafers $ toClafers unresolvedDecls
+    resolvedDecls <- mapM (resolveNElement allClafers) unresolvedDecls
     let
       relocatedDecls = relocateTopLevelAbstractToParents resolvedDecls    -- F> Top-level abstract clafer extending a nested abstract clafer <https://github.com/gsdlab/clafer/issues/67> <F
       uidClaferMap' = createUidIClaferMap imodule{_mDecls = relocatedDecls}
@@ -62,9 +62,9 @@ resolveNModule (imodule, genv') =
       )
 
 resolveNClafer :: [IClafer] -> IClafer -> Resolve IClafer
-resolveNClafer abstractClafers clafer =
+resolveNClafer allClafers clafer =
   do
-    (super', superIClafer')    <- resolveNSuper abstractClafers $ _super clafer
+    (super', superIClafer')    <- resolveNSuper allClafers $ _super clafer
     -- F> Top-level abstract clafer extending a nested abstract clafer <https://github.com/gsdlab/clafer/issues/67> F>
     let
       parentUID' =
@@ -75,7 +75,7 @@ resolveNClafer abstractClafers clafer =
             else _parentUID clafer
           Nothing               -> _parentUID clafer
     -- <F Top-level abstract clafer extending a nested abstract clafer <https://github.com/gsdlab/clafer/issues/67> <F
-    elements' <- mapM (resolveNElement abstractClafers) $ _elements clafer
+    elements' <- mapM (resolveNElement allClafers) $ _elements clafer
     return $ clafer
       { _super = super'
       , _parentUID = parentUID'
@@ -86,24 +86,86 @@ resolveNClafer abstractClafers clafer =
       , _elements = elements'
       }
 
+-- | Resolve the super type of a clafer to the abstract clafer it names.
+--
+-- Two shapes reach here from the desugarer: a plain name (@Person@) and a
+-- dotted path (@Person.Head@), which the grammar accepts as a join
+-- expression and the desugarer leaves as an 'IFunExp' "." chain over
+-- 'IClaferId's.  Both are normalized to the single-'IClaferId' form that
+-- every downstream consumer of '_super' expects ('getSuperId', the
+-- generators, the hierarchy walkers): the 'IClaferId' carries the resolved
+-- UID, its 'GlobalBind', and the 'TClafer' type.  Any other shape is a
+-- semantic error rather than a silent pass-through -- before
+-- Sigil-Logic/clafer#29 the fall-through returned dotted paths unresolved,
+-- and both backends then dropped the super without a diagnostic.
 resolveNSuper :: [IClafer] -> Maybe PExp -> Resolve (Maybe PExp, Maybe IClafer)
 resolveNSuper _ Nothing = return (Nothing, Nothing)
-resolveNSuper abstractClafers (Just (PExp _ pid' pos' (IClaferId _ id' _ _))) =
-    if isPrimitive id'
-      then throwError $ SemanticErr pos' $ "Primitive types are not allowed as super types: " ++ id'
-      else do
-        r <- resolveN pos' abstractClafers id'
-        ~(id'', [superClafer']) <- case r of
-          Nothing -> throwError $ SemanticErr pos' ("No superclafer found: " ++ id')
-          Just m  -> return m
-        return (Just $ PExp (Just $ TClafer [id'']) pid' pos' (IClaferId "" id'' (isTopLevel superClafer') (GlobalBind id''))
-                 , Just superClafer')
-resolveNSuper _ x = return (x, Nothing)
+resolveNSuper allClafers (Just (PExp _ pid' pos' superExp)) =
+    case superPathIdents superExp of
+      Just [id']
+        | isPrimitive id' -> throwError $ SemanticErr pos' $ "Primitive types are not allowed as super types: " ++ id'
+        | otherwise -> do
+            r <- resolveN pos' (filter _isAbstract allClafers) id'
+            superClafer' <- case r of
+              Just (_, [superClafer'']) -> return superClafer''
+              Just _                    -> error $ "[Bug] ResolverInheritance.resolveN returned a non-singleton path for '" ++ id' ++ "'"
+              Nothing                   -> throwError $ SemanticErr pos' ("No superclafer found: " ++ id')
+            return (Just $ mkSuperPExp (_uid superClafer') superClafer', Just superClafer')
+      Just (first : rest) -> do
+        superClafer' <- resolveSuperPath pos' allClafers first rest
+        return (Just $ mkSuperPExp (_uid superClafer') superClafer', Just superClafer')
+      _ -> throwError $ SemanticErr pos' "Only a clafer name or a dotted path of clafer names (e.g., Person.Head) is allowed as a super type"
+  where
+    mkSuperPExp uid' superClafer' = PExp (Just $ TClafer [uid']) pid' pos' (IClaferId "" uid' (isTopLevel superClafer') (GlobalBind uid'))
+
+-- | The identifiers of a super-type expression, left to right, or 'Nothing'
+-- when the expression is not a plain name or a "."-join of plain names.
+superPathIdents :: IExp -> Maybe [String]
+superPathIdents (IClaferId _ id' _ _) = Just [id']
+superPathIdents IFunExp{_op = ".", _exps = [PExp{_exp = l}, PExp{_exp = r}]} = (++) <$> superPathIdents l <*> superPathIdents r
+superPathIdents _ = Nothing
+
+-- | Resolve a dotted super-type path @first.rest...@ (Sigil-Logic/clafer#29).
+--
+-- The first segment names a top-level clafer or, failing that, the unique
+-- nested clafer of that name anywhere in the model; every further segment
+-- names a direct child of the clafer reached so far; the clafer the whole
+-- path reaches must be abstract.  Inherited children are not navigated --
+-- the inheritance hierarchy is what this very pass is resolving -- so a path
+-- through an extender (@Student.Head@ for a @Head@ declared in @Person@)
+-- must be written against the declaring clafer (@Person.Head@) instead.
+resolveSuperPath :: Span -> [IClafer] -> String -> [String] -> Resolve IClafer
+resolveSuperPath pos' allClafers first rest =
+  do
+    start  <- resolveStart
+    target <- foldM resolveStep start $ zip rest $ map (first :) $ inits rest
+    unless (_isAbstract target) $
+      noSuperErr $ "'" ++ _ident target ++ "' is not abstract"
+    return target
+  where
+    dotted = intercalate "." (first : rest)
+    noSuperErr detail = throwError $ SemanticErr pos' $ "No superclafer found: " ++ dotted ++ " (" ++ detail ++ ")"
+    byIdent ident' = filter ((== ident') . _ident)
+    resolveStart =
+      case byIdent first $ filter isTopLevel allClafers of
+        [start] -> return start
+        _       -> case byIdent first allClafers of
+          [start] -> return start
+          []      -> noSuperErr $ "no clafer named '" ++ first ++ "'"
+          starts  -> noSuperErr $ "'" ++ first ++ "' is ambiguous, start the path at a top-level clafer instead; candidates: "
+                                  ++ intercalate ", " (map (intercalate "." . map _uid . ancestry) starts)
+    resolveStep current (ident', prefix) =
+      case byIdent ident' $ getSubclafers $ _elements current of
+        [next] -> return next
+        []     -> noSuperErr $ "'" ++ ident' ++ "' is not a child of '" ++ intercalate "." prefix ++ "'"
+        _      -> noSuperErr $ "'" ++ ident' ++ "' is not a unique child of '" ++ intercalate "." prefix ++ "'"
+    uidMap = Map.fromList $ map (\c -> (_uid c, c)) allClafers
+    ancestry c = maybe [c] ((++ [c]) . ancestry) $ Map.lookup (_parentUID c) uidMap
 
 
 resolveNElement :: [IClafer] -> IElement -> Resolve IElement
-resolveNElement abstractClafers x = case x of
-  IEClafer clafer  -> IEClafer <$> resolveNClafer abstractClafers clafer
+resolveNElement allClafers x = case x of
+  IEClafer clafer  -> IEClafer <$> resolveNClafer allClafers clafer
   IEConstraint _ _  -> return x
   IEGoal _ _ -> return x
 

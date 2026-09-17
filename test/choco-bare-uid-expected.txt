@@ -9,7 +9,7 @@
 # stops being generated, the harness fails with a [STALE] error and the
 # entry must be removed.
 #
-# mergeExpAndSetExpAlloy.js:c0_h -- `h : Person.Head`: dotted super-type
-# expressions are left unresolved by the resolver and dropped by both
-# backends (Sigil-Logic/clafer#29); fixing #29 must empty this list.
-mergeExpAndSetExpAlloy.js:c0_h
+# Currently empty.  The sole entry so far, mergeExpAndSetExpAlloy.js:c0_h
+# (`h : Person.Head`: dotted super-type expressions were left unresolved
+# by the resolver and dropped by both backends), was removed when
+# Sigil-Logic/clafer#29 fixed the resolver.

@@ -1,0 +1,69 @@
+open util/integer
+pred show {}
+run show for 1 but 2 c0_Cylinder, 2 c0_Head, 2 c0_Person, 2 c0_c
+
+abstract sig c0_Person
+{ r_c0_Head : set c0_Head
+, r_c0_Bust : set c0_Bust }
+{ r_c0_Bust in r_c0_Head }
+
+abstract sig c0_Head
+{}
+{ one @r_c0_Head.this }
+
+abstract sig c0_Bust extends c0_Head
+{}
+{ one @r_c0_Bust.this }
+
+abstract sig c0_Animal
+{ r_c1_Head : set c1_Head }
+
+abstract sig c1_Head
+{}
+{ one @r_c1_Head.this }
+
+one sig c0_Ella extends c0_Person
+{ r_c0_h : one c0_h }
+{ r_c0_h in r_c0_Head }
+
+one sig c0_h extends c0_Head
+{}
+
+one sig c0_Rex extends c0_Animal
+{ r_c1_h : one c1_h }
+{ r_c1_h in r_c1_Head }
+
+one sig c1_h extends c1_Head
+{}
+
+abstract sig c0_Vehicle
+{ r_c0_Engine : set c0_Engine }
+
+abstract sig c0_Engine
+{ r_c0_Cylinder : set c0_Cylinder }
+{ one @r_c0_Engine.this }
+
+abstract sig c0_Cylinder
+{}
+{ one @r_c0_Cylinder.this }
+
+one sig c0_Car extends c0_Vehicle
+{ r_c1_Engine : one c1_Engine }
+{ r_c1_Engine in r_c0_Engine }
+
+one sig c1_Engine extends c0_Engine
+{ r_c0_c : set c0_c }
+{ 2 <= #r_c0_c and #r_c0_c <= 2
+  r_c0_c in r_c0_Cylinder }
+
+sig c0_c extends c0_Cylinder
+{}
+{ one @r_c0_c.this }
+
+one sig c0_Bob extends c0_Person
+{ r_c0_b : one c0_b }
+{ r_c0_b in r_c0_Bust }
+
+one sig c0_b extends c0_Bust
+{}
+

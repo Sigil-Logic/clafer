@@ -282,7 +282,38 @@ printPosIdentRef (PosIdent (p, id')) irMap True
 
 printSuper :: Super -> Int -> Map.Map Span [Ir] -> Bool -> [(Span, String)] -> String
 printSuper (SuperEmpty _) _ _ _ _ = ""
-printSuper (SuperSome _ setExp) indent irMap html comments = while html "<span class=\"keyword\">" ++ " : " ++ while html "</span>" ++ printExp setExp indent irMap html comments
+printSuper (SuperSome _ setExp) indent irMap html comments =
+  while html "<span class=\"keyword\">" ++ " : " ++ while html "</span>" ++
+  fromMaybe (printExp setExp indent irMap html comments) linkedPath
+  where
+    -- Sigil-Logic/clafer#29: a dotted path names its target through the
+    -- resolver's single normalized reference, not per-segment trace entries
+    linkedPath = case setExp of
+      EJoin s _ _ | html -> printSuperPath s setExp irMap
+      _                  -> Nothing
+
+-- | Render a dotted super-type path (@Person.Head@) with every segment linked
+-- to the clafer it names.  The resolver resolves such a path by direct-child
+-- navigation and traces only the target, so segment @i@ is recovered as the
+-- @i@-th innermost ancestor of the target (the target itself last).  Nothing
+-- when the trace holds no resolved target for the span or the ancestry is
+-- shorter than the path, in which case the caller prints the plain text.
+printSuperPath :: Span -> Exp -> Map.Map Span [Ir] -> Maybe String
+printSuperPath s setExp irMap = do
+  segments <- pathSegments setExp
+  target   <- traceSuperUid s irMap
+  let chain = reverse $ take (length segments) $ ancestry target
+  if length chain == length segments
+    then Just $ foldr1 (\a b -> a ++ "." ++ b)
+           [ "<a href=\"#" ++ uid' ++ "\"><span class=\"reference\">" ++ ident' ++ "</span></a>" | (uid', ident') <- zip chain segments ]
+    else Nothing
+  where
+    clafers = Map.fromList [ (_uid c, c) | irs <- Map.elems irMap, IRClafer c <- irs ]
+    -- the clafer and its ancestors, innermost first, up to the top level
+    ancestry uid' = uid' : maybe [] (ancestry . _parentUID) (Map.lookup uid' clafers)
+    pathSegments (ClaferId _ (Path _ [ModIdIdent _ (PosIdent (_, ident'))])) = Just [ident']
+    pathSegments (EJoin _ l r) = (++) <$> pathSegments l <*> pathSegments r
+    pathSegments _ = Nothing
 
 printReference :: Reference -> Int -> Map.Map Span [Ir] -> Bool -> [(Span, String)] -> String
 printReference (ReferenceEmpty _) _ _ _ _ = ""

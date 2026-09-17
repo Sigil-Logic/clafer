@@ -1,0 +1,7 @@
+// Sigil-Logic/clafer#29: the path resolves, but to a concrete clafer.
+abstract Person
+    abstract Head
+    likes -> Person ?
+
+Ella : Person
+    h : Person.likes

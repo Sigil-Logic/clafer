@@ -1,0 +1,6 @@
+// Sigil-Logic/clafer#29: the path names a child Person does not declare.
+abstract Person
+    abstract Head
+
+Ella : Person
+    h : Person.Nose

@@ -139,14 +139,18 @@ parent (_:xss) = parent xss
 graphSimpleSuper (SuperEmpty _) _ _ _ = ""
 graphSimpleSuper (SuperSome _ setExp) topLevel irMap _ =
   let
-    super' = parent $ graphSimpleExp setExp topLevel irMap
+    super' = case setExp of
+      -- Sigil-Logic/clafer#29: a dotted path names its target through the
+      -- resolver's single normalized reference at the path's span
+      EJoin s _ _ -> fromMaybe "error" $ traceSuperUid s irMap
+      _           -> parent $ graphSimpleExp setExp topLevel irMap
   in
     if super' == "error"
       then ""
       else "\"" ++
            fromJust (snd3 topLevel) ++
            "\" -> \"" ++
-           parent (graphSimpleExp setExp topLevel irMap) ++
+           super' ++
            "\"" ++
            " [" ++ if fst3 topLevel == True
              then "arrowhead=onormal constraint=true weight=100];\n"
