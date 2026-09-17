@@ -25,6 +25,7 @@ module Suite.Positive (tg_Test_Suite_Positive) where
 import Functions
 import Language.Clafer.Intermediate.Intclafer
 import Data.Foldable hiding (forM_)
+import Data.Char (isAlpha)
 import Data.List (isInfixOf)
 import Data.Maybe
 import Control.Monad
@@ -746,50 +747,71 @@ case_si33_rejection_precedes_navigation_and_survives_skip_resolver = do
 -- both: a constraint nested under a concrete clafer is rendered in the HTML
 -- view and in the clafer's Graph tooltip (which carries nested constraints
 -- only).  Each generator escapes the text its own way -- the HTML printer
--- emits entities for `< > && || / %` and the Graph generator escapes `&`
--- and `->` in the tooltip -- so the expectations are stated as source text
--- and encoded per generator here.
+-- emits entities for `< > && || / %` (but the set operators `<:` and `:>`
+-- raw, and the guard-closing arrows `]->`/`]->>` as `]-->`/`]-->>`, #42)
+-- and the Graph generator escapes `&`, `->`, and `->>` in the tooltip -- so
+-- the expectations are stated as source text and encoded per generator here
+-- (HOARDE Codex, PR #43 Cycle 1: the encoders must cover every branch the
+-- printers take for the shapes under test).
 
 si36_results :: String -> Map.Map ClaferMode CompilerResult
 si36_results model = fromRight $ compileOneFragment defaultClaferArgs{mode = [Html, Graph]} model
 
--- the HTML view with its tags removed, and the Graph output as is
+-- the HTML view with its tags removed (a tag starts with `<` and a letter or
+-- `/`; the raw `<:` the printer emits for domain restriction is text), and
+-- the Graph output as is
 si36_htmlText, si36_graph :: String -> String
 si36_htmlText model = stripTags $ outputCode $ fromJust $ Map.lookup Html $ si36_results model
   where
-    stripTags ('<':rest) = stripTags $ drop 1 $ dropWhile (/= '>') rest
-    stripTags (c:rest)   = c : stripTags rest
-    stripTags []         = []
+    stripTags ('<':c:rest)
+      | isAlpha c || c == '/' = stripTags $ drop 1 $ dropWhile (/= '>') rest
+    stripTags (c:rest)        = c : stripTags rest
+    stripTags []              = []
 si36_graph model = outputCode $ fromJust $ Map.lookup Graph $ si36_results model
 
 -- the constraint nested under a clafer with an integer reference `a`
 si36_model :: String -> String
 si36_model constraint = "A\n    a -> integer\n    [ " ++ constraint ++ " ]\n"
 
--- the entities the HTML printer emits for the operators used below
+-- the spellings the HTML printer emits for the operators used below: the
+-- set operators `<:` and `:>` are raw (checked before the relational `<`
+-- and `>`), the guard-closing transition arrows are the printer's `]-->`
+-- and `]-->>` (a pre-existing spelling of the source's `]->`/`]->>`, tracked
+-- under #42; the Graph text keeps the source spelling), the rest are entities
 si36_htmlEncode :: String -> String
-si36_htmlEncode ('&':'&':rest) = "&amp;&amp;" ++ si36_htmlEncode rest
-si36_htmlEncode ('|':'|':rest) = "&#124;&#124;" ++ si36_htmlEncode rest
-si36_htmlEncode ('<':rest)     = "&lt;" ++ si36_htmlEncode rest
-si36_htmlEncode ('>':rest)     = "&gt;" ++ si36_htmlEncode rest
-si36_htmlEncode ('/':rest)     = "&#47;" ++ si36_htmlEncode rest
-si36_htmlEncode ('%':rest)     = "&#37;" ++ si36_htmlEncode rest
-si36_htmlEncode (c:rest)       = c : si36_htmlEncode rest
-si36_htmlEncode []             = []
+si36_htmlEncode ('<':':':rest)         = "<:" ++ si36_htmlEncode rest
+si36_htmlEncode (':':'>':rest)         = ":>" ++ si36_htmlEncode rest
+si36_htmlEncode (']':'-':'>':'>':rest) = "]--&gt;&gt;" ++ si36_htmlEncode rest
+si36_htmlEncode (']':'-':'>':rest)     = "]--&gt;" ++ si36_htmlEncode rest
+si36_htmlEncode ('&':'&':rest)         = "&amp;&amp;" ++ si36_htmlEncode rest
+si36_htmlEncode ('|':'|':rest)         = "&#124;&#124;" ++ si36_htmlEncode rest
+si36_htmlEncode ('<':rest)             = "&lt;" ++ si36_htmlEncode rest
+si36_htmlEncode ('>':rest)             = "&gt;" ++ si36_htmlEncode rest
+si36_htmlEncode ('/':rest)             = "&#47;" ++ si36_htmlEncode rest
+si36_htmlEncode ('%':rest)             = "&#37;" ++ si36_htmlEncode rest
+si36_htmlEncode (c:rest)               = c : si36_htmlEncode rest
+si36_htmlEncode []                     = []
 
--- the escaping the Graph generator applies to a tooltip (`Graph.htmlChars`)
+-- the escaping the Graph generator applies to a tooltip (`Graph.htmlChars`:
+-- `&`, then `->>` before `->`, in production order)
 si36_graphEncode :: String -> String
-si36_graphEncode ('&':rest)     = "&amp;" ++ si36_graphEncode rest
-si36_graphEncode ('-':'>':rest) = "-&gt;" ++ si36_graphEncode rest
-si36_graphEncode (c:rest)       = c : si36_graphEncode rest
-si36_graphEncode []             = []
+si36_graphEncode ('&':rest)         = "&amp;" ++ si36_graphEncode rest
+si36_graphEncode ('-':'>':'>':rest) = "-&gt;&gt;" ++ si36_graphEncode rest
+si36_graphEncode ('-':'>':rest)     = "-&gt;" ++ si36_graphEncode rest
+si36_graphEncode (c:rest)           = c : si36_graphEncode rest
+si36_graphEncode []                 = []
 
 -- the constraint renders as `expected` in both generators, and the lossy
--- master rendering `lossy` (when given) appears in neither
+-- master rendering `lossy` (when given) appears in neither; the constraint
+-- is nested under the integer-reference clafer of `si36_model`
 si36_assertRenders :: String -> String -> String -> Maybe String -> Assertion
-si36_assertRenders variant constraint expected lossy = do
-    let model    = si36_model constraint
-        htmlText = si36_htmlText model
+si36_assertRenders variant constraint = si36_assertRendersIn variant (si36_model constraint)
+
+-- the same over a given model (its constraint must be nested under a clafer
+-- so that it reaches the Graph tooltip)
+si36_assertRendersIn :: String -> String -> String -> Maybe String -> Assertion
+si36_assertRendersIn variant model expected lossy = do
+    let htmlText = si36_htmlText model
         dotCode  = si36_graph model
     si29_assertContains ("HTML, " ++ variant) ("[ " ++ si36_htmlEncode expected ++ " ]") htmlText
     si29_assertContains ("Graph, " ++ variant) ("[ " ++ si36_graphEncode expected ++ " ]") dotCode
@@ -824,3 +846,25 @@ case_si36_parentheses_follow_the_grammar_levels =
           , ("implication as the right operand of =>", "a = 1 => (a = 2 => a = 3)", "a = 1 => (a = 2 => a = 3)", Just "a = 1 => a = 2 => a = 3")
           , ("redundant parentheses are not restored", "(a + 1) = 2", "a + 1 = 2", Nothing)
           ] $ \(variant, constraint, expected, lossy) -> si36_assertRenders variant constraint expected lossy
+
+-- The shapes whose spellings the encoders above had to learn (HOARDE Codex,
+-- PR #43 Cycle 1): right-nested and mixed domain/range restriction, guarded
+-- next and synchronous transitions (a transition inside the guard and as the
+-- left operand, both `Exp1`-restricted positions), and the three pattern
+-- scopes (`Exp11` bounds).  The model differs per family: the set operators
+-- need an abstract type with a subtype, the temporal shapes a state clafer.
+case_si36_parentheses_in_set_operator_transition_and_pattern_scope_shapes :: Assertion
+case_si36_parentheses_in_set_operator_transition_and_pattern_scope_shapes = do
+    let setModel constraint  = "abstract A\nB : A\n\nScope\n    [ " ++ constraint ++ " ]\n"
+        stateModel constraint = "State\n    xor flag\n        a\n        b\n        c\n    [ " ++ constraint ++ " ]\n"
+    forM_ [ ("right-nested domain restriction", setModel "some (A <: (A <: B))", "some A<:(A<:B)", Just "some A<:A<:B")
+          , ("right-nested range restriction", setModel "some (A :> (A :> B))", "some A:>(A:>B)", Just "some A:>A:>B")
+          , ("domain restriction under range restriction", setModel "some ((A <: B) :> A)", "some (A<:B):>A", Just "some A<:B:>A")
+          , ("left-nested domain then range stays bare", setModel "some (A <: A :> B)", "some A<:A:>B", Nothing)
+          , ("guarded next transition", stateModel "(a --> b) -[(b --> c)]-> c", "(a --> b) -[(b --> c)]-> c", Just "a --> b -[b --> c]-> c")
+          , ("guarded synchronous transition", stateModel "(a -->> b) -[(b -->> c)]->> c", "(a -->> b) -[(b -->> c)]->> c", Just "a -->> b -[b -->> c]->> c")
+          , ("before scope", stateModel "sometime a before (b || c)", "sometime a before (b || c)", Just "before b || c")
+          , ("between-and scope", stateModel "always b between (b && c) and (b => c)", "always b between (b && c) and (b => c)", Just "between b && c and b => c")
+          , ("after-until scope", stateModel "never c after (b || c) until (a && b)", "never c after (b || c) until (a && b)", Just "after b || c until a && b")
+          , ("quantified declarations under &&", setModel "(all x : A | some x) && (some y : A | some y)", "(all x : A | some x) && (some y : A | some y)", Just "all x : A | some x && some y : A | some y")
+          ] $ \(variant, model, expected, lossy) -> si36_assertRendersIn variant model expected lossy
