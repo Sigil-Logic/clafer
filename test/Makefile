@@ -37,8 +37,13 @@ CHOCO_EXCLUDES = choco-validation-excludes.txt
 CHOCO_NEGATIVES = choco-assertion-negatives.txt
 # Expected bare `cN_uid;` statements in the generated .js
 # (Sigil-Logic/clafer#18; consumed by validateChocoEmission), as
-# <file>:<uid>; strict expected occurrences.
+# <file>:<uid>; strict expected occurrences.  The pattern below admits
+# every generated UID (the lexer allows ISO-Latin-1 letters and
+# apostrophes in identifiers, e.g. c0_hí, c0_h'; HOARDE Codex, PR #30
+# Cycle 1) while excluding method calls and assignments; the leg
+# self-checks it against both shapes before scanning.
 CHOCO_BARE_UIDS = choco-bare-uid-expected.txt
+BARE_UID_PATTERN = ^c[0-9]+_[^[:space:].(=;]+;$$
 STRIP_EXCLUDES = sed -e 's/[[:space:]]*\#.*$$//' -e '/^[[:space:]]*$$/d'
 
 # Discovery runs through manifest files rather than pipelines: POSIX sh
@@ -224,7 +229,7 @@ validateChocoOutput:
 			echo "[FAIL] chocosolver rejects $$f:"; \
 			printf '%s\n' "$$out" | sed 's/^/    /'; \
 			fails=$$((fails+1)); \
-		elif printf '%s\n' "$$out" | grep -q "Unhandled compilation error\|ReferenceError"; then \
+		elif printf '%s\n' "$$out" | grep -Eq 'Unhandled compilation error|ReferenceError'; then \
 			echo "[FAIL] chocosolver rejects $$f (exit 0 on a compilation error, chocosolver#8):"; \
 			printf '%s\n' "$$out" | sed 's/^/    /'; \
 			fails=$$((fails+1)); \
@@ -291,6 +296,13 @@ validateChocoEmission:
 	@if test ! -f "$(CHOCO_BARE_UIDS)"; then \
 		echo "[ERROR] Missing $(CHOCO_BARE_UIDS)."; false; \
 	fi
+	@printf '%s\n' "c0_hí;" "c0_h';" | grep -Ecq '$(BARE_UID_PATTERN)' >/dev/null && \
+	 [ "$$(printf '%s\n' "c0_hí;" "c0_h';" | grep -Ec '$(BARE_UID_PATTERN)')" -eq 2 ] || { \
+		echo "[ERROR] BARE_UID_PATTERN must match bare statements over extended identifiers."; false; \
+	}
+	@if printf '%s\n' "c0_a.extending(c0_b);" "c0_a = Clafer(\"c0_a\");" "c0_a.refTo(Int);" | grep -Eq '$(BARE_UID_PATTERN)'; then \
+		echo "[ERROR] BARE_UID_PATTERN must not match method calls or assignments."; false; \
+	fi
 
 	@find $(SUITE_DIR) -type f -iname '*.js' > $(CHOCO_EMISSION_MANIFEST)
 	@sort -o $(CHOCO_EMISSION_MANIFEST) $(CHOCO_EMISSION_MANIFEST)
@@ -301,7 +313,7 @@ validateChocoEmission:
 	@fails=0; checked=0; expected=0; \
 	while IFS= read -r f; do \
 		checked=$$((checked+1)); \
-		for uid in $$(grep -E '^c[0-9]+_[A-Za-z0-9_]+;$$' "$$f" | sed 's/;$$//'); do \
+		for uid in $$(grep -E '$(BARE_UID_PATTERN)' "$$f" | sed 's/;$$//'); do \
 			if $(STRIP_EXCLUDES) $(CHOCO_BARE_UIDS) | grep -qxF "$${f#$(SUITE_DIR)/}:$$uid"; then \
 				expected=$$((expected+1)); \
 			else \
@@ -437,7 +449,7 @@ validateDefaultFlagOutput:
 			echo "[FAIL] Alloy 6.2.0 rejects the default-flag output of $$m:"; \
 			printf '%s\n' "$$out" | sed 's/^/    /'; status=1; fi; \
 		if ! out=$$($(VALIDATE_CHOCO) "$$tmp/$$base.js" 2>&1) || \
-		   printf '%s\n' "$$out" | grep -q "Unhandled compilation error\|ReferenceError\|Failed assertion"; then \
+		   printf '%s\n' "$$out" | grep -Eq 'Unhandled compilation error|ReferenceError|Failed assertion'; then \
 			echo "[FAIL] chocosolver rejects the default-flag output of $$m:"; \
 			printf '%s\n' "$$out" | sed 's/^/    /'; status=1; fi; \
 	done; \

@@ -228,6 +228,48 @@ case_integer_ref_targets_are_encoded =
              "c0_z.refToUnique(Int);\nc0_z.addConstraint($in(joinRef($this()), diff(union(constant(1), constant(2)), constant(2))));\n")
           ] $ \(variant, decl, expected) -> si18_assertEncoding variant decl expected
 
+-- HOARDE Codex, PR #30 Cycle 1: pin every reachable operand-class
+-- pairing of the finite (F) / co-finite (C) / universe (U) integer set
+-- algebra, not just the shapes in the corpus.
+case_integer_set_algebra_matrix :: Assertion
+case_integer_set_algebra_matrix =
+    forM_ [ ("F ++ F", "x -> 1 ++ 2",                          "$in(joinRef($this()), union(constant(1), constant(2)))")
+          , ("C ++ F", "x -> (integer -- 0) ++ 1",              "notIn(joinRef($this()), diff(constant(0), constant(1)))")
+          , ("F ++ C", "x -> 1 ++ (integer -- 0)",              "notIn(joinRef($this()), diff(constant(0), constant(1)))")
+          , ("C ++ C", "x -> (integer -- 0) ++ (integer -- 1)", "notIn(joinRef($this()), inter(constant(0), constant(1)))")
+          , ("F ** F", "x -> (1 ++ 2) ** 2",                   "$in(joinRef($this()), inter(union(constant(1), constant(2)), constant(2)))")
+          , ("C ** F", "x -> (integer -- 0) ** 1",              "$in(joinRef($this()), diff(constant(1), constant(0)))")
+          , ("F ** C", "x -> 1 ** (integer -- 0)",              "$in(joinRef($this()), diff(constant(1), constant(0)))")
+          , ("C ** C", "x -> (integer -- 0) ** (integer -- 1)", "notIn(joinRef($this()), union(constant(0), constant(1)))")
+          , ("U ** C", "x -> integer ** (integer -- 0)",        "notIn(joinRef($this()), constant(0))")
+          , ("C ** U", "x -> (integer -- 0) ** integer",        "notIn(joinRef($this()), constant(0))")
+          , ("F -- F", "x -> (1 ++ 2) -- 2",                   "$in(joinRef($this()), diff(union(constant(1), constant(2)), constant(2)))")
+          , ("U -- F", "x -> integer -- 0",                     "notIn(joinRef($this()), constant(0))")
+          , ("U -- C", "x -> integer -- (integer -- 0)",        "$in(joinRef($this()), constant(0))")
+          , ("C -- F", "x -> (integer -- 0) -- 1",              "notIn(joinRef($this()), union(constant(0), constant(1)))")
+          , ("F -- C", "x -> 1 -- (integer -- 0)",              "$in(joinRef($this()), inter(constant(1), constant(0)))")
+          , ("C -- C", "x -> (integer -- 0) -- (integer -- 1)", "$in(joinRef($this()), diff(constant(1), constant(0)))")
+          ] $ \(variant, decl, restriction) ->
+        si18_assertEncoding variant (decl ++ "\n") ("c0_x.refToUnique(Int);\nc0_x.addConstraint(" ++ restriction ++ ");\n")
+
+case_integer_universe_results_need_no_restriction :: Assertion
+case_integer_universe_results_need_no_restriction =
+    forM_ [ ("U ++ F", "x -> integer ++ 1"), ("F ++ U", "x -> 1 ++ integer")
+          , ("U ++ C", "x -> integer ++ (integer -- 0)"), ("C ++ U", "x -> (integer -- 0) ++ integer") ] $ \(variant, decl) -> do
+        let chocoCode = si18_choco (decl ++ "\n")
+        ("c0_x.refToUnique(Int);\n" `isInfixOf` chocoCode && not ("c0_x.addConstraint" `isInfixOf` chocoCode))
+            @? (variant ++ ": the result is the whole integer domain and needs no restriction:\n" ++ chocoCode)
+
+case_empty_integer_results_decline_choco_output :: Assertion
+case_empty_integer_results_decline_choco_output =
+    -- (`integer ** integer` and `integer -- integer` are rejected by the
+    -- clafer type checker before any backend runs, so they are not here)
+    forM_ [ ("F -- U", "x -> 1 -- integer"), ("C -- U", "x -> (integer -- 0) -- integer") ] $ \(variant, decl) ->
+        case Map.lookup Choco (si18_results (decl ++ "\n")) of
+            Just NoCompilerResult{reason = why} -> ("c0_x" `isInfixOf` why && "empty set of integers" `isInfixOf` why)
+                @? (variant ++ ": the decline reason must name c0_x and the empty set, got: " ++ why)
+            other -> assertFailure (variant ++ ": an empty integer set must decline Choco output, got: " ++ show other)
+
 case_integer_universe_ref_target_needs_no_restriction :: Assertion
 case_integer_universe_ref_target_needs_no_restriction = do
     let chocoCode = si18_choco "u -> integer ++ 1\n"
