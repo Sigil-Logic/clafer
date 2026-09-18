@@ -486,8 +486,13 @@ genPExp'    genEnv    resPath     (PExp iType' pid' pos exp') = case exp' of
 -- 3-May-2012 Rafael Olaechea.
 -- Removed transfromation from x = -2 to x = (0-2) as this creates problem with  partial instances.
 -- See http://gsd.uwaterloo.ca:8888/question/461/new-translation-of-negative-number-x-into-0-x-is.
+-- Sigil-Logic/clafer#41: unary minus (iMin) and binary subtraction (iSub)
+-- are both spelled "-" (Common), so the rewrite to `-1.mul[e]` matches the
+-- single-operand form only; a binary `-` falls through untouched to genOp's
+-- `.minus[` rendering (it used to be rewritten to the negation of its left
+-- operand, dropping the right one).
 transformExp :: IExp -> IExp
-transformExp (IFunExp op' (e1:_))
+transformExp (IFunExp op' [e1])
   | op' == iMin = IFunExp iMul [PExp (_iType e1) "" noSpan $ IInt (-1), e1]
 transformExp    x@(IFunExp op' exps'@(e1:e2:_))
   | op' == iXor = IFunExp iNot [PExp (Just TBoolean) "" noSpan (IFunExp iIff exps')]

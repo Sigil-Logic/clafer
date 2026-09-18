@@ -683,8 +683,13 @@ genPExp'    genEnv    ctx       (PExp iType' pid' pos exp') = case exp' of
 -- See http://gsd.uwaterloo.ca:8888/question/461/new-translation-of-negative-number-x-into-0-x-is.
 -- Encoding of Weak Until expression is done by translating to equivalent Until expression
 -- a W b === G a || a U b
+-- Sigil-Logic/clafer#41: unary minus (iMin) and binary subtraction (iSub)
+-- are both spelled "-" (Common), so the rewrite to `-1.mul[e]` matches the
+-- single-operand form only; a binary `-` falls through untouched to genOp's
+-- `.minus[` rendering (it used to be rewritten to the negation of its left
+-- operand, dropping the right one).
 transformExp :: IExp -> IClafer -> IExp
-transformExp (IFunExp op' (e1:_)) _
+transformExp (IFunExp op' [e1]) _
   | op' == iMin = IFunExp iMul [PExp (_iType e1) "" noSpan $ IInt (-1), e1]
 {-  | op' == iInitially && isMutable c' = -- transforms to: (no this && X this) => X e1
         let thisExpr = PExp (Just TBoolean) "" noSpan (IClaferId "" "this" False (GlobalBind (_uid c')))
