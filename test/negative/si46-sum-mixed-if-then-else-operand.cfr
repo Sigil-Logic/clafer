@@ -1,0 +1,9 @@
+// Sigil-Logic/clafer#46: an if-then-else with a numeric branch yields a number
+// even when the other branch is a set, so `sum (if c then 5 else N.dref)` is
+// rejected instead of rendering an illegal Alloy join (HOARDE Codex, PR #48
+// Cycle 2).
+abstract N ->> integer
+n1 : N = 5
+n2 : N = 2
+x -> integer
+[ x = sum (if some n1 then 5 else N.dref) ]

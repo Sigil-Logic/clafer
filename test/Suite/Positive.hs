@@ -24,6 +24,8 @@ module Suite.Positive (tg_Test_Suite_Positive) where
 
 import Functions
 import Language.Clafer.Intermediate.Intclafer
+import Language.Clafer.Intermediate.ResolverInheritance (rejectArithmeticAggregateOperands)
+import Language.Clafer.Front.AbsClafer (Span(..), noSpan)
 import Data.Foldable hiding (forM_)
 import Data.Char (isAlpha)
 import Data.List (isInfixOf)
@@ -966,9 +968,10 @@ case_si41_temporal_alloy_renders_subtraction_under_ltl_operators = do
 -- (-N)` with the `[bug]` invariant of `removeright`; the Choco generator
 -- aborted on `product (N + 1)`).  The resolver now declines such operands
 -- (ResolverInheritance.rejectArithmeticAggregateOperands) with a semantic
--- error positioned at the operand, before any resolution pass, so the
--- decline also holds under --skip-resolver and covers facts, assertions,
--- goals, and temporal constraints alike.  The aggregate outside the
+-- error positioned at the operand, after name resolution and before the
+-- inheritance, reference, and type resolvers, so the decline also holds
+-- under --skip-resolver and covers facts, assertions, goals, and temporal
+-- constraints alike.  The aggregate outside the
 -- arithmetic (`sum N - 1`) is the supported spelling and is unchanged.
 -- Set-operator operands (`sum (x ++ y)`, the i239 shape) are set
 -- expressions and are left alone: they dereference only their last operand
@@ -991,33 +994,41 @@ si46_assertRejected variant args' model expectedPos expected =
 
 case_si46_integer_aggregate_operands_are_rejected_with_position :: Assertion
 case_si46_integer_aggregate_operands_are_rejected_with_position =
-    forM_ [ ("subtraction", "[ x = sum (N - 1) ]", Pos 5 12, si46_msg "sum" "'-' yields an integer")
-          , ("addition", "[ x = sum (N + 1) ]", Pos 5 12, si46_msg "sum" "'+' yields an integer")
-          , ("multiplication", "[ x = sum (N * 2) ]", Pos 5 12, si46_msg "sum" "'*' yields an integer")
-          , ("explicit dereference", "[ x = sum (N.dref - 1) ]", Pos 5 12, si46_msg "sum" "'-' yields an integer")
-          , ("unary minus", "[ x = sum (-N) ]", Pos 5 12, si46_msg "sum" "unary '-' yields an integer")
+    forM_ [ ("subtraction", "[ x = sum (N - 1) ]", Pos 5 12, si46_msg "sum" "'-' yields a number")
+          , ("addition", "[ x = sum (N + 1) ]", Pos 5 12, si46_msg "sum" "'+' yields a number")
+          , ("multiplication", "[ x = sum (N * 2) ]", Pos 5 12, si46_msg "sum" "'*' yields a number")
+          , ("explicit dereference", "[ x = sum (N.dref - 1) ]", Pos 5 12, si46_msg "sum" "'-' yields a number")
+          , ("unary minus", "[ x = sum (-N) ]", Pos 5 12, si46_msg "sum" "unary '-' yields a number")
           , ("cardinality", "[ x = sum (#N) ]", Pos 5 12, si46_msg "sum" "'#' yields an integer")
           , ("integer literal", "[ x = sum 5 ]", Pos 5 11, si46_msg "sum" "an integer literal is an integer")
           , ("real literal (HOARDE Codex, PR #48 Cycle 1)", "[ x = sum 1.5 ]", Pos 5 11, si46_msg "sum" "a real literal is a real")
-          , ("nested aggregate (HOARDE Gemini, PR #48 Cycle 1)", "[ x = sum (sum N) ]", Pos 5 12, si46_msg "sum" "'sum' yields an integer")
-          , ("nested arithmetic over an aggregate", "[ x = sum (sum N - 1) ]", Pos 5 12, si46_msg "sum" "'-' yields an integer")
-          , ("minimum", "[ x = sum (min N) ]", Pos 5 12, si46_msg "sum" "'min' yields an integer")
-          , ("maximum under product", "[ x = product (max N) ]", Pos 5 16, si46_msg "product" "'max' yields an integer")
-          , ("if-then-else over integers", "[ x = sum (if some n1 then 5 else 6) ]", Pos 5 12, si46_msg "sum" "'if-then-else' over integers yields an integer")
-          , ("product", "[ x = product (N + 1) ]", Pos 5 16, si46_msg "product" "'+' yields an integer")
-          , ("assertion", "assert [ x = sum (N - 1) ]", Pos 5 19, si46_msg "sum" "'-' yields an integer")
+          , ("nested aggregate (HOARDE Gemini, PR #48 Cycle 1)", "[ x = sum (sum N) ]", Pos 5 12, si46_msg "sum" "'sum' yields a number")
+          , ("nested arithmetic over an aggregate", "[ x = sum (sum N - 1) ]", Pos 5 12, si46_msg "sum" "'-' yields a number")
+          , ("minimum", "[ x = sum (min N) ]", Pos 5 12, si46_msg "sum" "'min' yields a number")
+          , ("maximum under product", "[ x = product (max N) ]", Pos 5 16, si46_msg "product" "'max' yields a number")
+          , ("if-then-else over integers", "[ x = sum (if some n1 then 5 else 6) ]", Pos 5 12, si46_msg "sum" "'if-then-else' with a numeric branch yields a number")
+          , ("mixed if-then-else, numeric then-branch (HOARDE Codex, PR #48 Cycle 2)", "[ x = sum (if some n1 then 5 else N.dref) ]", Pos 5 12, si46_msg "sum" "'if-then-else' with a numeric branch yields a number")
+          , ("mixed if-then-else, numeric else-branch", "[ x = sum (if some n1 then N.dref else 5) ]", Pos 5 12, si46_msg "sum" "'if-then-else' with a numeric branch yields a number")
+          , ("if-then-else over reals", "[ x = sum (if some n1 then 1.5 else 2.5) ]", Pos 5 12, si46_msg "sum" "'if-then-else' with a numeric branch yields a number")
+          , ("maximum of a real", "[ x = sum (max 1.5) ]", Pos 5 12, si46_msg "sum" "'max' yields a number")
+          , ("the primitive type integer (HOARDE Codex, PR #48 Cycle 2)", "[ x = sum integer ]", Pos 5 11, si46_msg "sum" "the primitive type 'integer' is not a set of clafers")
+          , ("the primitive type int", "[ x = sum int ]", Pos 5 11, si46_msg "sum" "the primitive type 'int' is not a set of clafers")
+          , ("a local declared over integer", "[ all i : integer | sum i > 0 ]", Pos 5 25, si46_msg "sum" "the local 'i' is declared over the primitive type 'integer'")
+          , ("a local declared over integer, under product", "[ all i : integer | product i > 0 ]", Pos 5 29, si46_msg "product" "the local 'i' is declared over the primitive type 'integer'")
+          , ("product", "[ x = product (N + 1) ]", Pos 5 16, si46_msg "product" "'+' yields a number")
+          , ("assertion", "assert [ x = sum (N - 1) ]", Pos 5 19, si46_msg "sum" "'-' yields a number")
           ] $ \(variant, constraint, expectedPos, expected) ->
         si46_assertRejected variant defaultClaferArgs (si46_model constraint) expectedPos expected
 
 case_si46_rejection_holds_in_goals_temporal_constraints_and_without_the_resolver :: Assertion
 case_si46_rejection_holds_in_goals_temporal_constraints_and_without_the_resolver = do
-    si46_assertRejected "goal" defaultClaferArgs "abstract N ->> integer\nn1 : N = 5\nn2 : N = 2\n<< minimize sum (N - 1) >>\n" (Pos 4 18) (si46_msg "sum" "'-' yields an integer")
-    si46_assertRejected "product in a goal" defaultClaferArgs "abstract N ->> integer\nn1 : N = 5\nn2 : N = 2\n<< minimize product (N - 1) >>\n" (Pos 4 22) (si46_msg "product" "'-' yields an integer")
-    si46_assertRejected "temporal" defaultClaferArgs "final marker\nabstract N ->> integer\nn1 : N = 5\nx -> integer\n[ G (x = sum (N - 1)) ]\n" (Pos 5 15) (si46_msg "sum" "'-' yields an integer")
-    si46_assertRejected "quantified body" defaultClaferArgs "abstract N ->> integer\nn1 : N = 5\nn2 : N = 2\n[ all x : N | sum (x - 1) > 0 ]\n" (Pos 4 20) (si46_msg "sum" "'-' yields an integer")
-    si46_assertRejected "nested clafer" defaultClaferArgs "abstract N ->> integer\nn1 : N = 5\nn2 : N = 2\nabstract Feature\n    cost -> integer\n    [ cost = sum (N - 1) ]\n" (Pos 6 19) (si46_msg "sum" "'-' yields an integer")
-    si46_assertRejected "--skip-resolver" defaultClaferArgs{skip_resolver = True} "abstract N ->> integer\nn1 : N = 5\nx -> integer\n[ x = sum (N - 1) ]\n" (Pos 4 12) (si46_msg "sum" "'-' yields an integer")
-    si46_assertRejected "--flatten-inheritance" defaultClaferArgs{flatten_inheritance = True} "abstract N ->> integer\nn1 : N = 5\nx -> integer\n[ x = sum (N - 1) ]\n" (Pos 4 12) (si46_msg "sum" "'-' yields an integer")
+    si46_assertRejected "goal" defaultClaferArgs "abstract N ->> integer\nn1 : N = 5\nn2 : N = 2\n<< minimize sum (N - 1) >>\n" (Pos 4 18) (si46_msg "sum" "'-' yields a number")
+    si46_assertRejected "product in a goal" defaultClaferArgs "abstract N ->> integer\nn1 : N = 5\nn2 : N = 2\n<< minimize product (N - 1) >>\n" (Pos 4 22) (si46_msg "product" "'-' yields a number")
+    si46_assertRejected "temporal" defaultClaferArgs "final marker\nabstract N ->> integer\nn1 : N = 5\nx -> integer\n[ G (x = sum (N - 1)) ]\n" (Pos 5 15) (si46_msg "sum" "'-' yields a number")
+    si46_assertRejected "quantified body" defaultClaferArgs "abstract N ->> integer\nn1 : N = 5\nn2 : N = 2\n[ all x : N | sum (x - 1) > 0 ]\n" (Pos 4 20) (si46_msg "sum" "'-' yields a number")
+    si46_assertRejected "nested clafer" defaultClaferArgs "abstract N ->> integer\nn1 : N = 5\nn2 : N = 2\nabstract Feature\n    cost -> integer\n    [ cost = sum (N - 1) ]\n" (Pos 6 19) (si46_msg "sum" "'-' yields a number")
+    si46_assertRejected "--skip-resolver" defaultClaferArgs{skip_resolver = True} "abstract N ->> integer\nn1 : N = 5\nx -> integer\n[ x = sum (N - 1) ]\n" (Pos 4 12) (si46_msg "sum" "'-' yields a number")
+    si46_assertRejected "--flatten-inheritance" defaultClaferArgs{flatten_inheritance = True} "abstract N ->> integer\nn1 : N = 5\nx -> integer\n[ x = sum (N - 1) ]\n" (Pos 4 12) (si46_msg "sum" "'-' yields a number")
 
 -- The offender reported is the earliest in SOURCE order (HOARDE Codex, PR #48
 -- Cycle 1): name resolution has already relocated a top-level abstract that
@@ -1028,7 +1039,27 @@ case_si46_the_earliest_offender_in_source_order_is_reported :: Assertion
 case_si46_the_earliest_offender_in_source_order_is_reported =
     si46_assertRejected "relocated abstract after a top-level offender" defaultClaferArgs
         "abstract N ->> integer\nn1 : N = 5\nabstract Person\n    abstract Head\n[ sum (N + 2) > 0 ]\nabstract Bust : Person.Head\n    [ sum (N - 1) > 0 ]\n"
-        (Pos 5 8) (si46_msg "sum" "'+' yields an integer")
+        (Pos 5 8) (si46_msg "sum" "'+' yields a number")
+
+-- A positioned offender is preferred to one without a span (HOARDE Codex,
+-- PR #48 Cycle 2): parsed expressions always carry a span, so this is reached
+-- only by a hand-built module, but `noSpan` sorts before every real span and
+-- would otherwise be reported as the "earliest" offender.
+case_si46_a_positioned_offender_is_preferred_to_one_without_a_span :: Assertion
+case_si46_a_positioned_offender_is_preferred_to_one_without_a_span = do
+    let sumOf sp opSp = PExp Nothing "" sp (IFunExp "sum" [PExp Nothing "" opSp (IInt 5)])
+        positioned = Span (Pos 3 9) (Pos 3 10)
+        imodule = IModule "" [ IEConstraint True (sumOf noSpan noSpan)
+                             , IEConstraint True (sumOf (Span (Pos 3 1) (Pos 3 20)) positioned) ]
+    case rejectArithmeticAggregateOperands imodule of
+        Left SemanticErr{pos = actual} -> (actual == positioned) @? ("expected the positioned offender at " ++ show positioned ++ " but got " ++ show actual)
+        other -> assertFailure ("expected one positioned semantic error, got " ++ show other)
+
+-- A local declared over a clafer is a set and is not declined (`some i : N |
+-- sum i > 0` renders `sum temp : i | temp.@c0_N_ref`).
+case_si46_a_local_declared_over_a_clafer_is_not_declined :: Assertion
+case_si46_a_local_declared_over_a_clafer_is_not_declined =
+    si29_assertContains "local over a clafer" "fact { some  i : c0_N | (sum temp : i | temp.@c0_N_ref) > 0 }" (si31_alloy (si46_model "[ some i : N | sum i > 0 ]"))
 
 case_si46_aggregate_outside_the_arithmetic_is_unchanged :: Assertion
 case_si46_aggregate_outside_the_arithmetic_is_unchanged = do

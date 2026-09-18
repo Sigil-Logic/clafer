@@ -1,0 +1,6 @@
+// Sigil-Logic/clafer#46: a local declared over a primitive type ranges over
+// numbers, not clafers, so `sum i` is rejected with a positioned semantic
+// error instead of aborting the Alloy generator (HOARDE Codex, PR #48 Cycle 2).
+abstract N ->> integer
+n1 : N = 5
+[ all i : integer | sum i > 0 ]
