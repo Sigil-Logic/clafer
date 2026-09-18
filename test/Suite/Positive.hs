@@ -927,3 +927,34 @@ case_si41_temporal_alloy_renders_binary_subtraction_with_minus = do
     si29_assertContains "assertion" "assert assertOnLine_7 { let t = first | (@r_c0_x.t.@c0_x_ref.t) = (5.minus[2]) }" alloyLtlCode
     (not $ "-1.mul[5]" `isInfixOf` alloyLtlCode)
         @? ("temporal: a binary `-` must not be rendered as the negation of its left operand:\n" ++ alloyLtlCode)
+
+-- The shapes the corpus lacks (HOARDE Codex, PR #45 Cycle 1): a subtraction
+-- in a quantified body and in the branches of a numeric if-then-else, and
+-- under each LTL operator (`G`, `F`, `X`, `U`, `W`) in the temporal
+-- generator.  Two positions cannot be covered here: `product` gets no Alloy
+-- output at all (Language.Clafer declines the whole model, `NoCompilerResult`
+-- "the product operator"), and the operand of `sum` is decomposed as a
+-- navigation path by the `iSumSet` clause of `genIFunExp` before its
+-- operator reaches `genOp` -- so `sum (N - 1)` still renders the illegal
+-- join `temp.1`, on master and on this branch alike; that is
+-- Sigil-Logic/clafer#46.
+case_si41_alloy_renders_subtraction_in_quantifiers_and_if_then_else :: Assertion
+case_si41_alloy_renders_subtraction_in_quantifiers_and_if_then_else = do
+    let alloyCode = si31_alloy "abstract N ->> integer\nn1 : N = 5\nn2 : N = 2\nx -> integer\nflag ?\n[ all n : N | n - 1 > 0 ]\n[ x = (if some flag then 5 - 2 else 8 - 3) ]\n"
+    si29_assertContains "quantified body" "fact { all  n : c0_N | ((n.@c0_N_ref).minus[1]) > 0 }" alloyCode
+    si29_assertContains "if-then-else branches" "fact { (c0_x.@c0_x_ref) = ((some c0_flag) => (5.minus[2]) else (8.minus[3])) }" alloyCode
+    (not $ "-1.mul[" `isInfixOf` alloyCode)
+        @? ("quantifier / if-then-else: a binary `-` must not be rendered as the negation of its left operand:\n" ++ alloyCode)
+
+case_si41_temporal_alloy_renders_subtraction_under_ltl_operators :: Assertion
+case_si41_temporal_alloy_renders_subtraction_under_ltl_operators = do
+    let alloyLtlCode = si31_alloy "final marker\nx -> integer\nflag ?\n[ G (x = 5 - 2) ]\n[ F (x = 8 - 3) ]\n[ X (x = 9 - 4) ]\n[ (x = 7 - 2) U (x = 6 - 1) ]\n[ (x = 4 - 1) W (x = 3 - 1) ]\n[ G (x = (if some flag then 5 - 2 else 8 - 3)) ]\n"
+    forM_ [ ("G", "(infinite and all t':t.*next | (@r_c0_x.t'.@c0_x_ref.t') = (5.minus[2]))")
+          , ("F", "(some t':t.*next | (@r_c0_x.t'.@c0_x_ref.t') = (8.minus[3]))")
+          , ("X", "(some t.next and let t' = t.next | (@r_c0_x.t'.@c0_x_ref.t') = (9.minus[4]))")
+          , ("U", "(some t':t.future | (@r_c0_x.t'.@c0_x_ref.t') = (6.minus[1]) and ( all t'': upto[t, t'] | (@r_c0_x.t''.@c0_x_ref.t'') = (7.minus[2])))")
+          , ("W", "(some t':t.future | (@r_c0_x.t'.@c0_x_ref.t') = (3.minus[1]) and ( all t'': upto[t, t'] | (@r_c0_x.t''.@c0_x_ref.t'') = (4.minus[1])))")
+          , ("if-then-else under G", "(@r_c0_x.t'.@c0_x_ref.t') = ((some @r_c0_flag.t') => (5.minus[2]) else (8.minus[3]))")
+          ] $ \(variant, expected) -> si29_assertContains variant expected alloyLtlCode
+    (not $ "-1.mul[" `isInfixOf` alloyLtlCode)
+        @? ("LTL operators: a binary `-` must not be rendered as the negation of its left operand:\n" ++ alloyLtlCode)
