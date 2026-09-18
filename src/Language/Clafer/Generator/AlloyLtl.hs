@@ -714,9 +714,11 @@ genIFunExp :: GenEnv -> String -> GenCtx -> IExp             -> Concat
 genIFunExp    genEnv    pid'      ctx       (IFunExp op' exps') =
   if (op' `elem` ltlOps)
   then Concat (IrPExp pid') $ surroundPar $ genLtlExp genEnv ctx op' exps'
-  -- The `sum` operand is a set expression by construction (the resolver
-  -- declines arithmetic, cardinality, and literal operands,
-  -- ResolverInheritance.rejectArithmeticAggregateOperands, Sigil-Logic/clafer#46).
+  -- `removeright` / `getRight` assume a navigation path: the resolver declines
+  -- the integer-valued operand shapes it recognizes (arithmetic, `#`, nested
+  -- aggregates and extrema, integer if-then-else, literals;
+  -- ResolverInheritance.rejectArithmeticAggregateOperands, Sigil-Logic/clafer#46);
+  -- a set-operator operand still reaches here mis-rendered (#47).
   else if (op' == iSumSet)
     then genIFunExp genEnv pid' ctx (IFunExp iSumSet' [removeright firstExp, getRight firstExp])
     else if (op' == iSumSet')

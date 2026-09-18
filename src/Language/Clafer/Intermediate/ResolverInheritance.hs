@@ -250,48 +250,69 @@ unfoldableReferenceTargetMsg node =
       IFunExp{_op = op'} -> "the operands of '" ++ op' ++ "' are not both integer literals"
       other -> error $ "[Bug] ResolverInheritance.unfoldableReferenceTargetMsg called on a non-arithmetic node '" ++ show other ++ "'"
 
--- | Reject every @sum@ or @product@ whose operand is an integer expression
--- rather than a set expression (Sigil-Logic/clafer#46): an arithmetic
--- application (@sum (N - 1)@, @sum (-N)@), a cardinality (@sum #N@), or a
--- numeric literal (@sum 5@), with a semantic error positioned at the
+-- | Reject every @sum@ or @product@ whose operand is an integer (or real)
+-- expression rather than a set expression (Sigil-Logic/clafer#46): an
+-- arithmetic application (@sum (N - 1)@, @sum (-N)@), a cardinality (@sum
+-- (#N)@), a nested aggregate or extremum (@sum (sum N)@, @sum (max N)@), an
+-- if-then-else over such operands (@sum (if c then 5 else 6)@), or a numeric
+-- literal (@sum 5@, @sum 1.5@), with a semantic error positioned at the
 -- operand.  Both aggregates take a set of integer clafers -- @sum N@, @sum
--- N.dref@, @sum Feature.cost@ -- and neither backend gives another operand
--- a meaning: chocosolver rejects it when type-checking the generated
+-- N.dref@, @sum Feature.cost@ -- and neither backend gives another operand a
+-- meaning: chocosolver rejects it when type-checking the generated
 -- constraints (@Cannot sum(int)@), and the Alloy generators decompose the
--- operand as a navigation path ('removeright' / 'getRight'), rendering
--- @sum (N - 1)@ as the illegal join @sum temp : N.ref | temp.1@ and
--- aborting on @sum 5@ and @sum (-N)@ with the @[bug]@ invariant of
--- @removeright@.  Arithmetic over a set already denotes the arithmetic over
--- its sum in both backends (@N - 1@ is @(sum N) - 1@), so the aggregate
--- belongs outside the arithmetic: @sum N - 1@.  Like
--- 'rejectUnfoldableReferenceTargets' this runs over the whole module before
--- any resolution pass, so it holds under @--skip-resolver@ too, and the
--- expressions are visited in document order, so the first offender is
+-- operand as a navigation path ('removeright' / 'getRight'), rendering @sum
+-- (N - 1)@ as the illegal join @sum temp : N.ref | temp.1@ and aborting on
+-- the other shapes with the @[bug]@ invariant of @removeright@.  Arithmetic
+-- over a set already denotes the arithmetic over its sum in both backends
+-- (@N - 1@ is @(sum N) - 1@), so the aggregate belongs outside the
+-- arithmetic: @sum N - 1@.  A set-operator operand (@sum (x ++ y)@) is a set
+-- expression and is not declined here (its rendering is #47).
+--
+-- Like 'rejectUnfoldableReferenceTargets' this runs from
+-- 'Language.Clafer.Intermediate.Resolver.resolveModule' after name
+-- resolution and before the inheritance, reference, and type resolvers, so
+-- it also holds under @--skip-resolver@.  Name resolution has already
+-- relocated top-level abstracts under their nested super-types
+-- ('relocateTopLevelAbstractToParents'), so tree order is not source
+-- order; the offender with the earliest source position is the one
 -- reported.
 rejectArithmeticAggregateOperands :: IModule -> Resolve ()
 rejectArithmeticAggregateOperands imodule =
-  forM_ (universeOnOf biplate uniplate imodule :: [PExp]) $ \pexp' ->
-    case _exp pexp' of
-      IFunExp{_op = op', _exps = [operand]}
-        | op' `elem` [iSumSet, iProdSet], Just detail <- integerOperand operand ->
-            throwError $ SemanticErr (_inPos operand) $ arithmeticAggregateOperandMsg op' detail
-      _ -> return ()
+  case sortOn (\(operand, _, _) -> _inPos operand) offenders of
+    (operand, op', detail) : _ -> throwError $ SemanticErr (_inPos operand) $ arithmeticAggregateOperandMsg op' detail
+    []                         -> return ()
   where
-    integerOperand PExp{_exp = IFunExp{_op = op', _exps = exps'}}
-      | isArithmeticApp op' exps' = Just $ case exps' of
-          [_] -> "unary '-'"
-          _   -> "'" ++ op' ++ "'"
-      | op' == iCSet = Just "'#'"
-    integerOperand PExp{_exp = IInt _}    = Just "an integer literal"
-    integerOperand PExp{_exp = IDouble _} = Just "a real literal"
-    integerOperand PExp{_exp = IReal _}   = Just "a real literal"
-    integerOperand _                      = Nothing
+    offenders =
+      [ (operand, op', detail)
+      | PExp{_exp = IFunExp{_op = op', _exps = [operand]}} <- universeOnOf biplate uniplate imodule :: [PExp]
+      , op' `elem` [iSumSet, iProdSet]
+      , Just detail <- [integerOperand operand] ]
+
+-- | Why an operand of @sum@ / @product@ is an integer (or real) rather than a
+-- set, if it is one of the shapes this pass recognizes: the phrase completes
+-- @Unsupported operand of 'sum': <phrase>, not a set@.  'Nothing' for every
+-- other shape -- a clafer, a navigation, a set operator -- which the later
+-- resolvers and the generators take as before.
+integerOperand :: PExp -> Maybe String
+integerOperand PExp{_exp = IFunExp{_op = op', _exps = exps'}}
+  | isArithmeticApp op' exps' = Just $ case exps' of
+      [_] -> "unary '-' yields an integer"
+      _   -> "'" ++ op' ++ "' yields an integer"
+  | op' == iCSet = Just "'#' yields an integer"
+  | op' `elem` [iSumSet, iProdSet, iMinimum, iMaximum] = Just $ "'" ++ op' ++ "' yields an integer"
+  | op' == iIfThenElse, [_, thenBranch, elseBranch] <- exps'
+  , isJust (integerOperand thenBranch), isJust (integerOperand elseBranch)
+  = Just "'if-then-else' over integers yields an integer"
+integerOperand PExp{_exp = IInt _}    = Just "an integer literal is an integer"
+integerOperand PExp{_exp = IDouble _} = Just "a real literal is a real"
+integerOperand PExp{_exp = IReal _}   = Just "a real literal is a real"
+integerOperand _                      = Nothing
 
 -- | The message for a rejected aggregate operand: what the operand is and
 -- why it is not a set, then the rule with the shape to use instead.
 arithmeticAggregateOperandMsg :: String -> String -> String
 arithmeticAggregateOperandMsg op' detail =
-  "Unsupported operand of '" ++ op' ++ "': " ++ detail ++ " yields an integer, not a set.  The operand of '" ++ op' ++ "' must be a set of integer clafers, as in " ++ op' ++ " N or " ++ op' ++ " N.dref; apply the arithmetic to the aggregate instead, as in " ++ op' ++ " N - 1"
+  "Unsupported operand of '" ++ op' ++ "': " ++ detail ++ ", not a set.  The operand of '" ++ op' ++ "' must be a set of integer clafers, as in " ++ op' ++ " N or " ++ op' ++ " N.dref; apply the arithmetic to the aggregate instead, as in " ++ op' ++ " N - 1"
 
 
 resolveOElement :: SEnv -> IElement -> Resolve IElement
