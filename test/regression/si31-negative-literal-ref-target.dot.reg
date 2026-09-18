@@ -6,6 +6,6 @@ nodesep=0.1;
 graph [fontname=Sans fontsize=11];
 node [shape=box color=lightgray fontname=Sans fontsize=11 margin="0.02,0.02" height=0.2 ];
 edge [fontname=Sans fontsize=11];
-"c0_neg" [label="neg -&gt; -1" URL="#c0_neg" tooltip="neg -&gt; -1&#10;"];
-"c0_negOrOne" [label="negOrOne -&gt; -1++1" URL="#c0_negOrOne" tooltip="negOrOne -&gt; -1++1&#10;"];
+"c0_neg" [label="neg -&gt; (-1)" URL="#c0_neg" tooltip="neg -&gt; (-1)&#10;"];
+"c0_negOrOne" [label="negOrOne -&gt; (-1)++1" URL="#c0_negOrOne" tooltip="negOrOne -&gt; (-1)++1&#10;"];
 }

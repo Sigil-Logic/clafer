@@ -1,0 +1,56 @@
+open util/integer
+pred show {}
+run show for 1
+
+one sig c0_prod
+{ c0_prod_ref : one Int }
+
+fact { (c0_prod.@c0_prod_ref) = ((-1.mul[1]).mul[3]) }
+assert assertOnLine_23 { (c0_prod.@c0_prod_ref) = (-1.mul[3]) }
+check assertOnLine_23 for 1
+
+one sig c0_rightNested
+{ c0_rightNested_ref : one Int }
+
+fact { (c0_rightNested.@c0_rightNested_ref) = (-1.mul[1]) }
+assert assertOnLine_27 { (c0_rightNested.@c0_rightNested_ref) = 2 }
+check assertOnLine_27 for 1
+
+one sig c0_leftNested
+{ c0_leftNested_ref : one Int }
+
+fact { (c0_leftNested.@c0_leftNested_ref) = (-1.mul[(-1.mul[1])]) }
+assert assertOnLine_31 { (c0_leftNested.@c0_leftNested_ref) = (-1.mul[4]) }
+check assertOnLine_31 for 1
+
+one sig c0_negatedSum
+{ c0_negatedSum_ref : one Int }
+
+fact { (c0_negatedSum.@c0_negatedSum_ref) = (-1.mul[(2.plus[1])]) }
+assert assertOnLine_36 { (c0_negatedSum.@c0_negatedSum_ref) = (-1.mul[3]) }
+check assertOnLine_36 for 1
+
+one sig c0_negatedQuotient
+{ c0_negatedQuotient_ref : one Int }
+
+fact { (c0_negatedQuotient.@c0_negatedQuotient_ref) = ((-1.mul[(4.plus[2])]).div[3]) }
+assert assertOnLine_40 { (c0_negatedQuotient.@c0_negatedQuotient_ref) = (-1.mul[2]) }
+check assertOnLine_40 for 1
+
+one sig c0_setDiff
+{ c0_setDiff_ref : one (-1 + 1) - 1 }
+
+assert assertOnLine_46 { (c0_setDiff.@c0_setDiff_ref) = (-1.mul[1]) }
+check assertOnLine_46 for 1
+
+one sig c0_flag
+{ c0_flag_ref : one Int }
+
+fact { (((c0_flag.@c0_flag_ref) = 1) || ((c0_flag.@c0_flag_ref) = 2)) && ((c0_flag.@c0_flag_ref) != 2) }
+fact { !(((c0_flag.@c0_flag_ref) = 3) && ((c0_flag.@c0_flag_ref) = 4)) }
+fact { !((c0_flag.@c0_flag_ref) = 4) }
+fact { ((c0_flag.@c0_flag_ref) = 1) => (((c0_flag.@c0_flag_ref) = 2) => ((c0_flag.@c0_flag_ref) = 3)) }
+assert assertOnLine_56 { (c0_flag.@c0_flag_ref) = 1 }
+check assertOnLine_56 for 1
+
+fact { ((c0_prod.@c0_prod_ref).plus[(c0_rightNested.@c0_rightNested_ref)]) = (-1.mul[1]) }

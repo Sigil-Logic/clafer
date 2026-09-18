@@ -545,8 +545,8 @@ endef
 # plus si18-unsupported-ref-target (a reference target it cannot
 # express, Sigil-Logic/clafer#18) and also emits no .js for the 42
 # temporal tmp_* models, and the HTML and Graph backends decline none
-# -- hence the per-extension counts over the 169 models: 164 .als /
-# 123 .js / 169 .html / 169 .dot.  A declined
+# -- hence the per-extension counts over the 170 models: 165 .als /
+# 124 .js / 170 .html / 170 .dot.  A declined
 # model is absent from BOTH the generated tree and the .reg corpus of
 # its declining leg, so the counterpart invariant -- which relates
 # those two trees, not the .cfr suite -- needs no decliner carve-out.
