@@ -1,0 +1,8 @@
+// Sigil-Logic/clafer#46: an if-then-else whose branches are integers yields
+// an integer, so `sum (if c then 5 else 6)` is rejected with a positioned
+// semantic error instead of rendering an illegal Alloy join.
+abstract N ->> integer
+n1 : N = 5
+n2 : N = 2
+x -> integer
+[ x = sum (if some n1 then 5 else 6) ]

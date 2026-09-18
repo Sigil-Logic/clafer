@@ -931,13 +931,11 @@ case_si41_temporal_alloy_renders_binary_subtraction_with_minus = do
 -- The shapes the corpus lacks (HOARDE Codex, PR #45 Cycle 1): a subtraction
 -- in a quantified body and in the branches of a numeric if-then-else, and
 -- under each LTL operator (`G`, `F`, `X`, `U`, `W`) in the temporal
--- generator.  Two positions cannot be covered here: `product` gets no Alloy
+-- generator.  Two positions are not covered here: `product` gets no Alloy
 -- output at all (Language.Clafer declines the whole model, `NoCompilerResult`
--- "the product operator"), and the operand of `sum` is decomposed as a
--- navigation path by the `iSumSet` clause of `genIFunExp` before its
--- operator reaches `genOp` -- so `sum (N - 1)` still renders the illegal
--- join `temp.1`, on master and on this branch alike; that is
--- Sigil-Logic/clafer#46.
+-- "the product operator"), and an integer operand of `sum` (`sum (N - 1)`),
+-- which used to render the illegal join `temp.1`, is declined by the
+-- resolver since Sigil-Logic/clafer#46 (`case_si46_*` below).
 case_si41_alloy_renders_subtraction_in_quantifiers_and_if_then_else :: Assertion
 case_si41_alloy_renders_subtraction_in_quantifiers_and_if_then_else = do
     let alloyCode = si31_alloy "abstract N ->> integer\nn1 : N = 5\nn2 : N = 2\nx -> integer\nflag ?\n[ all n : N | n - 1 > 0 ]\n[ x = (if some flag then 5 - 2 else 8 - 3) ]\n"
@@ -980,7 +978,7 @@ si46_model :: String -> String
 si46_model constraint = "abstract N ->> integer\nn1 : N = 5\nn2 : N = 2\nx -> integer\n" ++ constraint ++ "\n"
 
 si46_msg :: String -> String -> String
-si46_msg op' detail = "Unsupported operand of '" ++ op' ++ "': " ++ detail ++ " yields an integer, not a set.  The operand of '" ++ op' ++ "' must be a set of integer clafers, as in " ++ op' ++ " N or " ++ op' ++ " N.dref; apply the arithmetic to the aggregate instead, as in " ++ op' ++ " N - 1"
+si46_msg op' detail = "Unsupported operand of '" ++ op' ++ "': " ++ detail ++ ", not a set.  The operand of '" ++ op' ++ "' must be a set of integer clafers, as in " ++ op' ++ " N or " ++ op' ++ " N.dref; apply the arithmetic to the aggregate instead, as in " ++ op' ++ " N - 1"
 
 si46_assertRejected :: String -> ClaferArgs -> String -> Pos -> String -> Assertion
 si46_assertRejected variant args' model expectedPos expected =
@@ -993,23 +991,44 @@ si46_assertRejected variant args' model expectedPos expected =
 
 case_si46_integer_aggregate_operands_are_rejected_with_position :: Assertion
 case_si46_integer_aggregate_operands_are_rejected_with_position =
-    forM_ [ ("subtraction", "[ x = sum (N - 1) ]", Pos 5 12, si46_msg "sum" "'-'")
-          , ("addition", "[ x = sum (N + 1) ]", Pos 5 12, si46_msg "sum" "'+'")
-          , ("multiplication", "[ x = sum (N * 2) ]", Pos 5 12, si46_msg "sum" "'*'")
-          , ("explicit dereference", "[ x = sum (N.dref - 1) ]", Pos 5 12, si46_msg "sum" "'-'")
-          , ("unary minus", "[ x = sum (-N) ]", Pos 5 12, si46_msg "sum" "unary '-'")
-          , ("cardinality", "[ x = sum (#N) ]", Pos 5 12, si46_msg "sum" "'#'")
-          , ("integer literal", "[ x = sum 5 ]", Pos 5 11, si46_msg "sum" "an integer literal")
-          , ("product", "[ x = product (N + 1) ]", Pos 5 16, si46_msg "product" "'+'")
-          , ("assertion", "assert [ x = sum (N - 1) ]", Pos 5 19, si46_msg "sum" "'-'")
+    forM_ [ ("subtraction", "[ x = sum (N - 1) ]", Pos 5 12, si46_msg "sum" "'-' yields an integer")
+          , ("addition", "[ x = sum (N + 1) ]", Pos 5 12, si46_msg "sum" "'+' yields an integer")
+          , ("multiplication", "[ x = sum (N * 2) ]", Pos 5 12, si46_msg "sum" "'*' yields an integer")
+          , ("explicit dereference", "[ x = sum (N.dref - 1) ]", Pos 5 12, si46_msg "sum" "'-' yields an integer")
+          , ("unary minus", "[ x = sum (-N) ]", Pos 5 12, si46_msg "sum" "unary '-' yields an integer")
+          , ("cardinality", "[ x = sum (#N) ]", Pos 5 12, si46_msg "sum" "'#' yields an integer")
+          , ("integer literal", "[ x = sum 5 ]", Pos 5 11, si46_msg "sum" "an integer literal is an integer")
+          , ("real literal (HOARDE Codex, PR #48 Cycle 1)", "[ x = sum 1.5 ]", Pos 5 11, si46_msg "sum" "a real literal is a real")
+          , ("nested aggregate (HOARDE Gemini, PR #48 Cycle 1)", "[ x = sum (sum N) ]", Pos 5 12, si46_msg "sum" "'sum' yields an integer")
+          , ("nested arithmetic over an aggregate", "[ x = sum (sum N - 1) ]", Pos 5 12, si46_msg "sum" "'-' yields an integer")
+          , ("minimum", "[ x = sum (min N) ]", Pos 5 12, si46_msg "sum" "'min' yields an integer")
+          , ("maximum under product", "[ x = product (max N) ]", Pos 5 16, si46_msg "product" "'max' yields an integer")
+          , ("if-then-else over integers", "[ x = sum (if some n1 then 5 else 6) ]", Pos 5 12, si46_msg "sum" "'if-then-else' over integers yields an integer")
+          , ("product", "[ x = product (N + 1) ]", Pos 5 16, si46_msg "product" "'+' yields an integer")
+          , ("assertion", "assert [ x = sum (N - 1) ]", Pos 5 19, si46_msg "sum" "'-' yields an integer")
           ] $ \(variant, constraint, expectedPos, expected) ->
         si46_assertRejected variant defaultClaferArgs (si46_model constraint) expectedPos expected
 
 case_si46_rejection_holds_in_goals_temporal_constraints_and_without_the_resolver :: Assertion
 case_si46_rejection_holds_in_goals_temporal_constraints_and_without_the_resolver = do
-    si46_assertRejected "goal" defaultClaferArgs "abstract N ->> integer\nn1 : N = 5\nn2 : N = 2\n<< minimize sum (N - 1) >>\n" (Pos 4 18) (si46_msg "sum" "'-'")
-    si46_assertRejected "temporal" defaultClaferArgs "final marker\nabstract N ->> integer\nn1 : N = 5\nx -> integer\n[ G (x = sum (N - 1)) ]\n" (Pos 5 15) (si46_msg "sum" "'-'")
-    si46_assertRejected "--skip-resolver" defaultClaferArgs{skip_resolver = True} "abstract N ->> integer\nn1 : N = 5\nx -> integer\n[ x = sum (N - 1) ]\n" (Pos 4 12) (si46_msg "sum" "'-'")
+    si46_assertRejected "goal" defaultClaferArgs "abstract N ->> integer\nn1 : N = 5\nn2 : N = 2\n<< minimize sum (N - 1) >>\n" (Pos 4 18) (si46_msg "sum" "'-' yields an integer")
+    si46_assertRejected "product in a goal" defaultClaferArgs "abstract N ->> integer\nn1 : N = 5\nn2 : N = 2\n<< minimize product (N - 1) >>\n" (Pos 4 22) (si46_msg "product" "'-' yields an integer")
+    si46_assertRejected "temporal" defaultClaferArgs "final marker\nabstract N ->> integer\nn1 : N = 5\nx -> integer\n[ G (x = sum (N - 1)) ]\n" (Pos 5 15) (si46_msg "sum" "'-' yields an integer")
+    si46_assertRejected "quantified body" defaultClaferArgs "abstract N ->> integer\nn1 : N = 5\nn2 : N = 2\n[ all x : N | sum (x - 1) > 0 ]\n" (Pos 4 20) (si46_msg "sum" "'-' yields an integer")
+    si46_assertRejected "nested clafer" defaultClaferArgs "abstract N ->> integer\nn1 : N = 5\nn2 : N = 2\nabstract Feature\n    cost -> integer\n    [ cost = sum (N - 1) ]\n" (Pos 6 19) (si46_msg "sum" "'-' yields an integer")
+    si46_assertRejected "--skip-resolver" defaultClaferArgs{skip_resolver = True} "abstract N ->> integer\nn1 : N = 5\nx -> integer\n[ x = sum (N - 1) ]\n" (Pos 4 12) (si46_msg "sum" "'-' yields an integer")
+    si46_assertRejected "--flatten-inheritance" defaultClaferArgs{flatten_inheritance = True} "abstract N ->> integer\nn1 : N = 5\nx -> integer\n[ x = sum (N - 1) ]\n" (Pos 4 12) (si46_msg "sum" "'-' yields an integer")
+
+-- The offender reported is the earliest in SOURCE order (HOARDE Codex, PR #48
+-- Cycle 1): name resolution has already relocated a top-level abstract that
+-- extends a nested abstract under its new parent, so a walk in tree order
+-- would report the relocated clafer's operand (line 7) before an earlier
+-- top-level one (line 5).
+case_si46_the_earliest_offender_in_source_order_is_reported :: Assertion
+case_si46_the_earliest_offender_in_source_order_is_reported =
+    si46_assertRejected "relocated abstract after a top-level offender" defaultClaferArgs
+        "abstract N ->> integer\nn1 : N = 5\nabstract Person\n    abstract Head\n[ sum (N + 2) > 0 ]\nabstract Bust : Person.Head\n    [ sum (N - 1) > 0 ]\n"
+        (Pos 5 8) (si46_msg "sum" "'+' yields an integer")
 
 case_si46_aggregate_outside_the_arithmetic_is_unchanged :: Assertion
 case_si46_aggregate_outside_the_arithmetic_is_unchanged = do
@@ -1021,6 +1040,9 @@ case_si46_aggregate_outside_the_arithmetic_is_unchanged = do
         si29_assertContains (variant ++ " (Alloy)") alloyExpected (si31_alloy (si46_model constraint))
         si29_assertContains (variant ++ " (Choco)") chocoExpected (si31_choco (si46_model constraint))
     si29_assertContains "product N (Choco)" "Constraint(equal(joinRef(global(c0_x)), product(global(c0_N))));" (si31_choco (si46_model "[ x = product N ]"))
+    let chainModel = "abstract Feature\n    cost -> integer\nf1 : Feature\n    [ cost = 5 ]\nf2 : Feature\n    [ cost = 2 ]\nx -> integer\n[ x = sum Feature.cost ]\n"
+    si29_assertContains "reference chain (Alloy)" "(sum temp : (c0_Feature.@r_c0_cost) | temp.@c0_cost_ref)" (si31_alloy chainModel)
+    si29_assertContains "reference chain (Choco)" "sum(join(global(c0_Feature), c0_cost))" (si31_choco chainModel)
     let alloyLtlCode = si31_alloy "final marker\nabstract N ->> integer\nn1 : N = 5\nx -> integer\n[ G (x = sum N - 1) ]\n"
     si29_assertContains "temporal sum N - 1" ".minus[1]" alloyLtlCode
     si29_assertContains "temporal sum N - 1 aggregate" "sum temp : " alloyLtlCode

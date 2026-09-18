@@ -1,0 +1,8 @@
+// Sigil-Logic/clafer#46: a nested aggregate yields an integer, so `sum (sum N)`
+// is rejected with a positioned semantic error instead of aborting the Alloy
+// generator (HOARDE Gemini, PR #48 Cycle 1).
+abstract N ->> integer
+n1 : N = 5
+n2 : N = 2
+x -> integer
+[ x = sum (sum N) ]
