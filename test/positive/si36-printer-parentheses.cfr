@@ -13,11 +13,8 @@
 
 // arithmetic: a lower-level operand of `*`, and a same-level right operand
 // of `-` (a same-level LEFT operand stays bare: `-` is left-associative).
-// The Alloy facts of these three rows are mis-rendered on master -- the
-// Alloy generators render a binary `-` as negation of the left operand
-// (Sigil-Logic/clafer#41) -- so their assertions hold in Choco only until
-// #41 lands and re-baselines the .als.reg; the renderings pinned here are
-// the printer's, which is what this model is for.
+// The Alloy facts of these three rows render the binary `-` as `.minus[`
+// (Sigil-Logic/clafer#41), so their assertions hold in both backends.
 prod -> integer
 [ prod = (1 - 2) * 3 ]
 assert [ prod = -3 ]

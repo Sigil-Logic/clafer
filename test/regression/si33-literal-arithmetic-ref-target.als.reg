@@ -5,7 +5,7 @@ run show for 1
 one sig c0_negOne
 { c0_negOne_ref : one -1 }
 
-assert assertOnLine_22 { (c0_negOne.@c0_negOne_ref) = (-1.mul[1]) }
+assert assertOnLine_22 { (c0_negOne.@c0_negOne_ref) = (1.minus[2]) }
 check assertOnLine_22 for 1
 
 one sig c0_five
