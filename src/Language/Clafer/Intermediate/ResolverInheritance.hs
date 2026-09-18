@@ -24,7 +24,7 @@
 module Language.Clafer.Intermediate.ResolverInheritance where
 
 import           Control.Applicative
-import           Control.Lens  ((^.), (&), (%%~), (.~), universeOn, universeOnOf)
+import           Control.Lens  ((^.), (&), (%%~), (.~), universeOn, universeOnOf, universeOf)
 import           Control.Monad
 import           Control.Monad.Except
 import           Control.Monad.State
@@ -250,12 +250,13 @@ unfoldableReferenceTargetMsg node =
       IFunExp{_op = op'} -> "the operands of '" ++ op' ++ "' are not both integer literals"
       other -> error $ "[Bug] ResolverInheritance.unfoldableReferenceTargetMsg called on a non-arithmetic node '" ++ show other ++ "'"
 
--- | Reject every @sum@ or @product@ whose operand is an integer (or real)
--- expression rather than a set expression (Sigil-Logic/clafer#46): an
--- arithmetic application (@sum (N - 1)@, @sum (-N)@), a cardinality (@sum
--- (#N)@), a nested aggregate or extremum (@sum (sum N)@, @sum (max N)@), an
--- if-then-else over such operands (@sum (if c then 5 else 6)@), or a numeric
--- literal (@sum 5@, @sum 1.5@), with a semantic error positioned at the
+-- | Reject every @sum@ or @product@ whose operand is a number rather than a
+-- set of clafers (Sigil-Logic/clafer#46): an arithmetic application (@sum (N
+-- - 1)@, @sum (-N)@), a cardinality (@sum (#N)@), a nested aggregate or
+-- extremum (@sum (sum N)@, @sum (max N)@), an if-then-else with such a branch
+-- (@sum (if c then 5 else N.dref)@), a numeric literal (@sum 5@, @sum 1.5@),
+-- a primitive type (@sum integer@), or a local declared over a primitive type
+-- (@all i : integer | sum i > 0@), with a semantic error positioned at the
 -- operand.  Both aggregates take a set of integer clafers -- @sum N@, @sum
 -- N.dref@, @sum Feature.cost@ -- and neither backend gives another operand a
 -- meaning: chocosolver rejects it when type-checking the generated
@@ -273,40 +274,57 @@ unfoldableReferenceTargetMsg node =
 -- resolution and before the inheritance, reference, and type resolvers, so
 -- it also holds under @--skip-resolver@.  Name resolution has already
 -- relocated top-level abstracts under their nested super-types
--- ('relocateTopLevelAbstractToParents'), so tree order is not source
--- order; the offender with the earliest source position is the one
--- reported.
+-- ('relocateTopLevelAbstractToParents'), so tree order is not source order;
+-- the offender with the earliest source position is the one reported, and a
+-- positioned offender is preferred to one without a span.
 rejectArithmeticAggregateOperands :: IModule -> Resolve ()
 rejectArithmeticAggregateOperands imodule =
-  case sortOn (\(operand, _, _) -> _inPos operand) offenders of
+  case sortOn (\(operand, _, _) -> (_inPos operand == noSpan, _inPos operand)) offenders of
     (operand, op', detail) : _ -> throwError $ SemanticErr (_inPos operand) $ arithmeticAggregateOperandMsg op' detail
     []                         -> return ()
   where
-    offenders =
+    pexps = universeOnOf biplate uniplate imodule :: [PExp]
+    offenders = shapeOffenders ++ localOffenders
+    -- operands whose shape alone says they are numbers
+    shapeOffenders =
       [ (operand, op', detail)
-      | PExp{_exp = IFunExp{_op = op', _exps = [operand]}} <- universeOnOf biplate uniplate imodule :: [PExp]
+      | PExp{_exp = IFunExp{_op = op', _exps = [operand]}} <- pexps
       , op' `elem` [iSumSet, iProdSet]
-      , Just detail <- [integerOperand operand] ]
+      , Just detail <- [numericOperand operand] ]
+    -- operands that are locals declared over a primitive type in an
+    -- enclosing quantifier (@all i : integer | sum i > 0@)
+    localOffenders =
+      [ (operand, op', "the local '" ++ local ++ "' is declared over the primitive type '" ++ prim ++ "'")
+      | PExp{_exp = IDeclPExp{_oDecls = decls, _bpexp = body}} <- pexps
+      , IDecl{_decls = locals, _body = PExp{_exp = IClaferId{_sident = prim}}} <- decls
+      , prim `elem` primitiveTypes
+      , PExp{_exp = IFunExp{_op = op', _exps = [operand@PExp{_exp = IClaferId{_sident = local}}]}} <- universeOf uniplate body
+      , op' `elem` [iSumSet, iProdSet]
+      , local `elem` locals ]
 
--- | Why an operand of @sum@ / @product@ is an integer (or real) rather than a
--- set, if it is one of the shapes this pass recognizes: the phrase completes
--- @Unsupported operand of 'sum': <phrase>, not a set@.  'Nothing' for every
--- other shape -- a clafer, a navigation, a set operator -- which the later
--- resolvers and the generators take as before.
-integerOperand :: PExp -> Maybe String
-integerOperand PExp{_exp = IFunExp{_op = op', _exps = exps'}}
+-- | Why an operand of @sum@ / @product@ is a number rather than a set, if
+-- its shape alone says so: the phrase completes @Unsupported operand of
+-- 'sum': <phrase>, not a set@.  Arithmetic, extrema, and aggregates may be
+-- real- or integer-valued, so they "yield a number"; a cardinality and an
+-- integer literal are integers, a real literal is a real.  'Nothing' for
+-- every other shape -- a clafer, a navigation, a set operator -- which the
+-- later resolvers and the generators take as before.
+numericOperand :: PExp -> Maybe String
+numericOperand PExp{_exp = IFunExp{_op = op', _exps = exps'}}
   | isArithmeticApp op' exps' = Just $ case exps' of
-      [_] -> "unary '-' yields an integer"
-      _   -> "'" ++ op' ++ "' yields an integer"
+      [_] -> "unary '-' yields a number"
+      _   -> "'" ++ op' ++ "' yields a number"
   | op' == iCSet = Just "'#' yields an integer"
-  | op' `elem` [iSumSet, iProdSet, iMinimum, iMaximum] = Just $ "'" ++ op' ++ "' yields an integer"
+  | op' `elem` [iSumSet, iProdSet, iMinimum, iMaximum] = Just $ "'" ++ op' ++ "' yields a number"
   | op' == iIfThenElse, [_, thenBranch, elseBranch] <- exps'
-  , isJust (integerOperand thenBranch), isJust (integerOperand elseBranch)
-  = Just "'if-then-else' over integers yields an integer"
-integerOperand PExp{_exp = IInt _}    = Just "an integer literal is an integer"
-integerOperand PExp{_exp = IDouble _} = Just "a real literal is a real"
-integerOperand PExp{_exp = IReal _}   = Just "a real literal is a real"
-integerOperand _                      = Nothing
+  , isJust (numericOperand thenBranch) || isJust (numericOperand elseBranch)
+  = Just "'if-then-else' with a numeric branch yields a number"
+numericOperand PExp{_exp = IInt _}    = Just "an integer literal is an integer"
+numericOperand PExp{_exp = IDouble _} = Just "a real literal is a real"
+numericOperand PExp{_exp = IReal _}   = Just "a real literal is a real"
+numericOperand PExp{_exp = IClaferId{_sident = prim}}
+  | prim `elem` primitiveTypes = Just $ "the primitive type '" ++ prim ++ "' is not a set of clafers"
+numericOperand _ = Nothing
 
 -- | The message for a rejected aggregate operand: what the operand is and
 -- why it is not a set, then the rule with the shape to use instead.
