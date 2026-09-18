@@ -1015,6 +1015,11 @@ case_si46_integer_aggregate_operands_are_rejected_with_position =
           , ("the primitive type int", "[ x = sum int ]", Pos 5 11, si46_msg "sum" "the primitive type 'int' is not a set of clafers")
           , ("a local declared over integer", "[ all i : integer | sum i > 0 ]", Pos 5 25, si46_msg "sum" "the local 'i' is declared over the primitive type 'integer'")
           , ("a local declared over integer, under product", "[ all i : integer | product i > 0 ]", Pos 5 29, si46_msg "product" "the local 'i' is declared over the primitive type 'integer'")
+          , ("a local declared over a dereference (HOARDE Codex, PR #48 Cycle 3)", "[ all i : N.dref | sum i > 0 ]", Pos 5 24, si46_msg "sum" "the local 'i' is declared over a dereference, i.e. values rather than clafers")
+          , ("a local declared over a dereference, under product", "[ all i : N.dref | product i > 0 ]", Pos 5 28, si46_msg "product" "the local 'i' is declared over a dereference, i.e. values rather than clafers")
+          , ("a numeric local in the then-branch", "[ all i : integer | sum (if some n1 then i else N.dref) > 0 ]", Pos 5 26, si46_msg "sum" "'if-then-else' with a numeric branch yields a number")
+          , ("a numeric local in the else-branch", "[ all i : integer | sum (if some n1 then N.dref else i) > 0 ]", Pos 5 26, si46_msg "sum" "'if-then-else' with a numeric branch yields a number")
+          , ("a numeric outer local shadowed by nothing, in a nested quantifier", "[ all i : integer | some n : N | sum i > 0 ]", Pos 5 38, si46_msg "sum" "the local 'i' is declared over the primitive type 'integer'")
           , ("product", "[ x = product (N + 1) ]", Pos 5 16, si46_msg "product" "'+' yields a number")
           , ("assertion", "assert [ x = sum (N - 1) ]", Pos 5 19, si46_msg "sum" "'-' yields a number")
           ] $ \(variant, constraint, expectedPos, expected) ->
@@ -1056,10 +1061,14 @@ case_si46_a_positioned_offender_is_preferred_to_one_without_a_span = do
         other -> assertFailure ("expected one positioned semantic error, got " ++ show other)
 
 -- A local declared over a clafer is a set and is not declined (`some i : N |
--- sum i > 0` renders `sum temp : i | temp.@c0_N_ref`).
+-- sum i > 0` renders `sum temp : i | temp.@c0_N_ref`), including when it
+-- shadows an outer local declared over a primitive type (HOARDE Codex, PR #48
+-- Cycle 3): locals are classified in scope.
 case_si46_a_local_declared_over_a_clafer_is_not_declined :: Assertion
-case_si46_a_local_declared_over_a_clafer_is_not_declined =
+case_si46_a_local_declared_over_a_clafer_is_not_declined = do
     si29_assertContains "local over a clafer" "fact { some  i : c0_N | (sum temp : i | temp.@c0_N_ref) > 0 }" (si31_alloy (si46_model "[ some i : N | sum i > 0 ]"))
+    si29_assertContains "clafer-bound local shadowing a primitive-bound one" "fact { all  i : Int | some  i : c0_N | (sum temp : i | temp.@c0_N_ref) > 0 }" (si31_alloy (si46_model "[ all i : integer | some i : N | sum i > 0 ]"))
+    si29_assertContains "the shadowing survives the inner scope only" "fact { all  i : Int | (some  i : c0_N | (sum temp : i | temp.@c0_N_ref) > 0) && (i.@i_ref > 0) }" (si31_alloy (si46_model "[ all i : integer | (some i : N | sum i > 0) && i > 0 ]"))
 
 case_si46_aggregate_outside_the_arithmetic_is_unchanged :: Assertion
 case_si46_aggregate_outside_the_arithmetic_is_unchanged = do
