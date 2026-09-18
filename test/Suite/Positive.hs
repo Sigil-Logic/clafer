@@ -958,3 +958,77 @@ case_si41_temporal_alloy_renders_subtraction_under_ltl_operators = do
           ] $ \(variant, expected) -> si29_assertContains variant expected alloyLtlCode
     (not $ "-1.mul[" `isInfixOf` alloyLtlCode)
         @? ("LTL operators: a binary `-` must not be rendered as the negation of its left operand:\n" ++ alloyLtlCode)
+
+-- Sigil-Logic/clafer#46: `sum` and `product` take a set of integer clafers;
+-- an operand that is an integer expression -- arithmetic, a cardinality, a
+-- numeric literal -- has no meaning in either backend (chocosolver rejects
+-- the generated `sum(sub(N, 1))` with `Cannot sum(int)`; the Alloy
+-- generators decomposed the operand as a navigation path, rendering the
+-- illegal join `sum temp : N.ref | temp.1` or aborting on `sum 5` and `sum
+-- (-N)` with the `[bug]` invariant of `removeright`; the Choco generator
+-- aborted on `product (N + 1)`).  The resolver now declines such operands
+-- (ResolverInheritance.rejectArithmeticAggregateOperands) with a semantic
+-- error positioned at the operand, before any resolution pass, so the
+-- decline also holds under --skip-resolver and covers facts, assertions,
+-- goals, and temporal constraints alike.  The aggregate outside the
+-- arithmetic (`sum N - 1`) is the supported spelling and is unchanged.
+-- Set-operator operands (`sum (x ++ y)`, the i239 shape) are set
+-- expressions and are left alone: they dereference only their last operand
+-- in both backends, which is Sigil-Logic/clafer#47.
+
+si46_model :: String -> String
+si46_model constraint = "abstract N ->> integer\nn1 : N = 5\nn2 : N = 2\nx -> integer\n" ++ constraint ++ "\n"
+
+si46_msg :: String -> String -> String
+si46_msg op' detail = "Unsupported operand of '" ++ op' ++ "': " ++ detail ++ " yields an integer, not a set.  The operand of '" ++ op' ++ "' must be a set of integer clafers, as in " ++ op' ++ " N or " ++ op' ++ " N.dref; apply the arithmetic to the aggregate instead, as in " ++ op' ++ " N - 1"
+
+si46_assertRejected :: String -> ClaferArgs -> String -> Pos -> String -> Assertion
+si46_assertRejected variant args' model expectedPos expected =
+    case compileOneFragment args' model of
+        Left [SemanticErr{pos = ErrPos{modelPos = actualPos}, msg = actual}] -> do
+            (actual == expected) @? (variant ++ ": expected the message\n" ++ expected ++ "\nbut got\n" ++ actual)
+            (actualPos == expectedPos) @? (variant ++ ": expected the error at " ++ show expectedPos ++ " but got " ++ show actualPos)
+        Left errors -> assertFailure (variant ++ ": expected exactly one positioned semantic error, got " ++ show errors)
+        Right _     -> assertFailure (variant ++ ": the model is not expected to compile")
+
+case_si46_integer_aggregate_operands_are_rejected_with_position :: Assertion
+case_si46_integer_aggregate_operands_are_rejected_with_position =
+    forM_ [ ("subtraction", "[ x = sum (N - 1) ]", Pos 5 12, si46_msg "sum" "'-'")
+          , ("addition", "[ x = sum (N + 1) ]", Pos 5 12, si46_msg "sum" "'+'")
+          , ("multiplication", "[ x = sum (N * 2) ]", Pos 5 12, si46_msg "sum" "'*'")
+          , ("explicit dereference", "[ x = sum (N.dref - 1) ]", Pos 5 12, si46_msg "sum" "'-'")
+          , ("unary minus", "[ x = sum (-N) ]", Pos 5 12, si46_msg "sum" "unary '-'")
+          , ("cardinality", "[ x = sum (#N) ]", Pos 5 12, si46_msg "sum" "'#'")
+          , ("integer literal", "[ x = sum 5 ]", Pos 5 11, si46_msg "sum" "an integer literal")
+          , ("product", "[ x = product (N + 1) ]", Pos 5 16, si46_msg "product" "'+'")
+          , ("assertion", "assert [ x = sum (N - 1) ]", Pos 5 19, si46_msg "sum" "'-'")
+          ] $ \(variant, constraint, expectedPos, expected) ->
+        si46_assertRejected variant defaultClaferArgs (si46_model constraint) expectedPos expected
+
+case_si46_rejection_holds_in_goals_temporal_constraints_and_without_the_resolver :: Assertion
+case_si46_rejection_holds_in_goals_temporal_constraints_and_without_the_resolver = do
+    si46_assertRejected "goal" defaultClaferArgs "abstract N ->> integer\nn1 : N = 5\nn2 : N = 2\n<< minimize sum (N - 1) >>\n" (Pos 4 18) (si46_msg "sum" "'-'")
+    si46_assertRejected "temporal" defaultClaferArgs "final marker\nabstract N ->> integer\nn1 : N = 5\nx -> integer\n[ G (x = sum (N - 1)) ]\n" (Pos 5 15) (si46_msg "sum" "'-'")
+    si46_assertRejected "--skip-resolver" defaultClaferArgs{skip_resolver = True} "abstract N ->> integer\nn1 : N = 5\nx -> integer\n[ x = sum (N - 1) ]\n" (Pos 4 12) (si46_msg "sum" "'-'")
+
+case_si46_aggregate_outside_the_arithmetic_is_unchanged :: Assertion
+case_si46_aggregate_outside_the_arithmetic_is_unchanged = do
+    forM_ [ ("sum N - 1", "[ x = sum N - 1 ]", "fact { (c0_x.@c0_x_ref) = ((sum temp : c0_N | temp.@c0_N_ref).minus[1]) }", "Constraint(equal(joinRef(global(c0_x)), sub(sum(global(c0_N)), constant(1))));")
+          , ("sum N", "[ x = sum N ]", "fact { (c0_x.@c0_x_ref) = (sum temp : c0_N | temp.@c0_N_ref) }", "Constraint(equal(joinRef(global(c0_x)), sum(global(c0_N))));")
+          , ("sum N.dref", "[ x = sum N.dref ]", "fact { (c0_x.@c0_x_ref) = (sum temp : c0_N | temp.@c0_N_ref) }", "Constraint(equal(joinRef(global(c0_x)), sum(global(c0_N))));")
+          , ("arithmetic over the set", "[ x = N - 1 ]", "fact { (c0_x.@c0_x_ref) = ((c0_N.@c0_N_ref).minus[1]) }", "Constraint(equal(joinRef(global(c0_x)), sub(joinRef(global(c0_N)), constant(1))));")
+          ] $ \(variant, constraint, alloyExpected, chocoExpected) -> do
+        si29_assertContains (variant ++ " (Alloy)") alloyExpected (si31_alloy (si46_model constraint))
+        si29_assertContains (variant ++ " (Choco)") chocoExpected (si31_choco (si46_model constraint))
+    si29_assertContains "product N (Choco)" "Constraint(equal(joinRef(global(c0_x)), product(global(c0_N))));" (si31_choco (si46_model "[ x = product N ]"))
+    let alloyLtlCode = si31_alloy "final marker\nabstract N ->> integer\nn1 : N = 5\nx -> integer\n[ G (x = sum N - 1) ]\n"
+    si29_assertContains "temporal sum N - 1" ".minus[1]" alloyLtlCode
+    si29_assertContains "temporal sum N - 1 aggregate" "sum temp : " alloyLtlCode
+
+case_si46_set_operator_operands_are_not_declined :: Assertion
+case_si46_set_operator_operands_are_not_declined =
+    forM_ [ ("union (i239)", "x ->> integer 2..*\ny ->> integer 2..*\nz -> integer = sum (x ++ y)\n")
+          , ("difference", "abstract N ->> integer\nn1 : N = 5\nn2 : N = 2\nx -> integer\n[ x = sum (N -- n1) ]\n")
+          ] $ \(variant, model) ->
+        compiledCheck (compileOneFragment defaultClaferArgs{mode = [Alloy, Choco]} model)
+            @? (variant ++ ": a set-operator operand of `sum` is a set expression and must still compile (its rendering is Sigil-Logic/clafer#47)")

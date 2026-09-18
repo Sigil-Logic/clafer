@@ -1,0 +1,8 @@
+// Sigil-Logic/clafer#46: `product` follows the same rule as `sum`; an
+// arithmetic operand is rejected with a positioned semantic error instead
+// of aborting the Choco generator ("Unexpected product argument").
+abstract N ->> integer
+n1 : N = 5
+n2 : N = 2
+x -> integer
+[ x = product (N + 1) ]

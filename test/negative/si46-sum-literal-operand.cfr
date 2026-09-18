@@ -1,0 +1,8 @@
+// Sigil-Logic/clafer#46: an integer literal as the operand of `sum` is
+// rejected with a positioned semantic error; it used to abort the Alloy
+// generator with the `[bug]` invariant of `removeright`.
+abstract N ->> integer
+n1 : N = 5
+n2 : N = 2
+x -> integer
+[ x = sum 5 ]

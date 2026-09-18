@@ -1,0 +1,8 @@
+// Sigil-Logic/clafer#46: unary minus over the set yields an integer, so
+// `sum (-N)` is rejected with a positioned semantic error instead of
+// aborting the Alloy generator.
+abstract N ->> integer
+n1 : N = 5
+n2 : N = 2
+x -> integer
+[ x = sum (-N) ]
