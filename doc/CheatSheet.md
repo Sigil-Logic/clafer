@@ -310,6 +310,8 @@ product <numeric expression>
 # <set expression>
 ```
 
+The operand of `sum` and `product` is a set of integer clafers -- `sum N`, `sum N.dref`, `sum Feature.cost`.  A numeric expression that is not a set -- arithmetic (`sum (N - 1)`), a cardinality, a nested aggregate or `min`/`max`, an `if-then-else` over integers, or a literal -- is rejected with a positioned error; apply the arithmetic to the aggregate instead (`sum N - 1`).  (Sigil-Logic/clafer#46)
+
 ### String expressions
 
 `<string expression>`:
