@@ -24,7 +24,7 @@
 module Language.Clafer.Intermediate.ResolverInheritance where
 
 import           Control.Applicative
-import           Control.Lens  ((^.), (&), (%%~), (.~), universeOn, universeOnOf, universeOf)
+import           Control.Lens  ((^.), (&), (%%~), (.~), universeOn, toListOf)
 import           Control.Monad
 import           Control.Monad.Except
 import           Control.Monad.State
@@ -256,8 +256,9 @@ unfoldableReferenceTargetMsg node =
 -- extremum (@sum (sum N)@, @sum (max N)@), an if-then-else with such a branch
 -- (@sum (if c then 5 else N.dref)@), a numeric literal (@sum 5@, @sum 1.5@),
 -- a primitive type (@sum integer@), or a local declared over a primitive type
--- (@all i : integer | sum i > 0@), with a semantic error positioned at the
--- operand.  Both aggregates take a set of integer clafers -- @sum N@, @sum
+-- or a dereference (@all i : integer | sum i > 0@, @all i : N.dref | sum i@),
+-- with a semantic error positioned at the operand; locals are classified in
+-- scope, so an inner clafer-bound local shadows an outer numeric one.  Both aggregates take a set of integer clafers -- @sum N@, @sum
 -- N.dref@, @sum Feature.cost@ -- and neither backend gives another operand a
 -- meaning: chocosolver rejects it when type-checking the generated
 -- constraints (@Cannot sum(int)@), and the Alloy generators decompose the
@@ -283,48 +284,65 @@ rejectArithmeticAggregateOperands imodule =
     (operand, op', detail) : _ -> throwError $ SemanticErr (_inPos operand) $ arithmeticAggregateOperandMsg op' detail
     []                         -> return ()
   where
-    pexps = universeOnOf biplate uniplate imodule :: [PExp]
-    offenders = shapeOffenders ++ localOffenders
-    -- operands whose shape alone says they are numbers
-    shapeOffenders =
-      [ (operand, op', detail)
-      | PExp{_exp = IFunExp{_op = op', _exps = [operand]}} <- pexps
-      , op' `elem` [iSumSet, iProdSet]
-      , Just detail <- [numericOperand operand] ]
-    -- operands that are locals declared over a primitive type in an
-    -- enclosing quantifier (@all i : integer | sum i > 0@)
-    localOffenders =
-      [ (operand, op', "the local '" ++ local ++ "' is declared over the primitive type '" ++ prim ++ "'")
-      | PExp{_exp = IDeclPExp{_oDecls = decls, _bpexp = body}} <- pexps
-      , IDecl{_decls = locals, _body = PExp{_exp = IClaferId{_sident = prim}}} <- decls
-      , prim `elem` primitiveTypes
-      , PExp{_exp = IFunExp{_op = op', _exps = [operand@PExp{_exp = IClaferId{_sident = local}}]}} <- universeOf uniplate body
-      , op' `elem` [iSumSet, iProdSet]
-      , local `elem` locals ]
+    -- the outermost expressions of the module (constraints, goals,
+    -- reference targets, ...), each walked with the locals in scope
+    offenders = concatMap (offendersIn Map.empty) (toListOf biplate imodule :: [PExp])
+
+-- | The offending aggregate operands within one expression, carrying the
+-- locals in scope with what they range over ('numericDomain'): a quantifier
+-- binds its locals for its body only, and an inner declaration of the same
+-- name shadows an outer one -- in @all i : integer | some i : N | sum i > 0@
+-- the operand is the inner, clafer-bound @i@ and is a set.
+offendersIn :: Map.Map String String -> PExp -> [(PExp, String, String)]
+offendersIn env pexp = here ++ below
+  where
+    here = [ (operand, op', detail)
+           | IFunExp{_op = op', _exps = [operand]} <- [_exp pexp]
+           , op' `elem` [iSumSet, iProdSet]
+           , Just detail <- [numericOperandIn env operand] ]
+    below = case _exp pexp of
+      IDeclPExp{_oDecls = decls, _bpexp = body} ->
+        concatMap (offendersIn env . _body) decls ++ offendersIn (foldl bind env decls) body
+      _ -> concatMap (offendersIn env) (toListOf uniplate pexp)
+    bind env' IDecl{_decls = locals, _body = domain} = case numericDomain domain of
+      Just what -> foldr (`Map.insert` what) env' locals
+      Nothing   -> foldr Map.delete env' locals
+
+-- | What a quantifier's local ranges over when that is numbers rather than
+-- clafers: a primitive type (@all i : integer@) or a dereference (@all i :
+-- N.dref@, the values of @N@).  'Nothing' for a set of clafers.
+numericDomain :: PExp -> Maybe String
+numericDomain PExp{_exp = IClaferId{_sident = prim}}
+  | prim `elem` primitiveTypes = Just $ "the primitive type '" ++ prim ++ "'"
+numericDomain PExp{_exp = IFunExp{_op = ".", _exps = [_, PExp{_exp = IClaferId{_sident = "dref"}}]}} =
+  Just "a dereference, i.e. values rather than clafers"
+numericDomain _ = Nothing
 
 -- | Why an operand of @sum@ / @product@ is a number rather than a set, if
--- its shape alone says so: the phrase completes @Unsupported operand of
--- 'sum': <phrase>, not a set@.  Arithmetic, extrema, and aggregates may be
--- real- or integer-valued, so they "yield a number"; a cardinality and an
--- integer literal are integers, a real literal is a real.  'Nothing' for
--- every other shape -- a clafer, a navigation, a set operator -- which the
+-- its shape -- or, for a local, its declaration in scope -- says so: the
+-- phrase completes @Unsupported operand of 'sum': <phrase>, not a set@.
+-- Arithmetic, extrema, and aggregates may be real- or integer-valued, so
+-- they "yield a number"; a cardinality and an integer literal are integers,
+-- a real literal is a real.  'Nothing' for every other shape -- a clafer, a
+-- navigation, a set operator, a local declared over clafers -- which the
 -- later resolvers and the generators take as before.
-numericOperand :: PExp -> Maybe String
-numericOperand PExp{_exp = IFunExp{_op = op', _exps = exps'}}
+numericOperandIn :: Map.Map String String -> PExp -> Maybe String
+numericOperandIn env PExp{_exp = IClaferId{_sident = name}}
+  | Just what <- Map.lookup name env = Just $ "the local '" ++ name ++ "' is declared over " ++ what
+  | name `elem` primitiveTypes = Just $ "the primitive type '" ++ name ++ "' is not a set of clafers"
+numericOperandIn env PExp{_exp = IFunExp{_op = op', _exps = exps'}}
   | isArithmeticApp op' exps' = Just $ case exps' of
       [_] -> "unary '-' yields a number"
       _   -> "'" ++ op' ++ "' yields a number"
   | op' == iCSet = Just "'#' yields an integer"
   | op' `elem` [iSumSet, iProdSet, iMinimum, iMaximum] = Just $ "'" ++ op' ++ "' yields a number"
   | op' == iIfThenElse, [_, thenBranch, elseBranch] <- exps'
-  , isJust (numericOperand thenBranch) || isJust (numericOperand elseBranch)
+  , isJust (numericOperandIn env thenBranch) || isJust (numericOperandIn env elseBranch)
   = Just "'if-then-else' with a numeric branch yields a number"
-numericOperand PExp{_exp = IInt _}    = Just "an integer literal is an integer"
-numericOperand PExp{_exp = IDouble _} = Just "a real literal is a real"
-numericOperand PExp{_exp = IReal _}   = Just "a real literal is a real"
-numericOperand PExp{_exp = IClaferId{_sident = prim}}
-  | prim `elem` primitiveTypes = Just $ "the primitive type '" ++ prim ++ "' is not a set of clafers"
-numericOperand _ = Nothing
+numericOperandIn _ PExp{_exp = IInt _}    = Just "an integer literal is an integer"
+numericOperandIn _ PExp{_exp = IDouble _} = Just "a real literal is a real"
+numericOperandIn _ PExp{_exp = IReal _}   = Just "a real literal is a real"
+numericOperandIn _ _ = Nothing
 
 -- | The message for a rejected aggregate operand: what the operand is and
 -- why it is not a set, then the rule with the shape to use instead.

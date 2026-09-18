@@ -511,7 +511,7 @@ genIFunExp    _         genEnv    resPath     (IFunExp "."  [PExp{_exp=IClaferId
 -- The resolver declines the integer-valued operand shapes it recognizes
 -- before generation -- arithmetic, `#`, nested `sum`/`product`/`min`/`max`,
 -- an if-then-else with a numeric branch, numeric literals, a primitive type,
--- a local declared over a primitive type
+-- a local declared over a primitive type or a dereference
 -- (ResolverInheritance.rejectArithmeticAggregateOperands, Sigil-Logic/clafer#46);
 -- a set-operator operand still reaches here and is mis-rendered (#47).
 genIFunExp    pid'      genEnv    resPath     (IFunExp op' exps')
