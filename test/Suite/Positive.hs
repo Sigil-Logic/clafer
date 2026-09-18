@@ -681,12 +681,14 @@ case_si33_temporal_alloy_declares_the_folded_literal =
         (not $ any (`isInfixOf` alloyLtlCode) ["_ref : 1.minus[", "_ref : 2.mul["])
             @? (variant ++ ": the declaration must not use the call-form rendering:\n" ++ alloyLtlCode)
 
--- Facts are not folded: the constraint side renders the operators exactly as
--- before (the corpus diff legs check the same across every baseline).
+-- Facts are not folded: the constraint side renders the operators through
+-- genOp (the corpus diff legs check the same across every baseline).  The
+-- binary `-` of `a` rendered as `-1.mul[1]` -- the negation of its left
+-- operand -- until Sigil-Logic/clafer#41 (case_si41_* below).
 case_si33_constraint_arithmetic_is_not_folded :: Assertion
 case_si33_constraint_arithmetic_is_not_folded = do
     let model = "a -> integer\nb -> integer\n[ a = (1 - 2) * 3 ]\n[ b = (-7) / 2 + (-7) % 2 ]\n"
-    si29_assertContains "Alloy, a" "fact { (c0_a.@c0_a_ref) = ((-1.mul[1]).mul[3]) }" (si31_alloy model)
+    si29_assertContains "Alloy, a" "fact { (c0_a.@c0_a_ref) = ((1.minus[2]).mul[3]) }" (si31_alloy model)
     si29_assertContains "Alloy, b" "fact { (c0_b.@c0_b_ref) = (((-1.mul[7]).div[2]).plus[((-1.mul[7]).rem[2])]) }" (si31_alloy model)
     si29_assertContains "Choco, a" "Constraint(equal(joinRef(global(c0_a)), mul(sub(constant(1), constant(2)), constant(3))));" (si31_choco model)
     si29_assertContains "Choco, b" "Constraint(equal(joinRef(global(c0_b)), add(div(constant(-7), constant(2)), mod(constant(-7), constant(2)))));" (si31_choco model)
@@ -868,3 +870,60 @@ case_si36_parentheses_in_set_operator_transition_and_pattern_scope_shapes = do
           , ("after-until scope", stateModel "never c after (b || c) until (a && b)", "never c after (b || c) until (a && b)", Just "after b || c until a && b")
           , ("quantified declarations under &&", setModel "(all x : A | some x) && (some y : A | some y)", "(all x : A | some x) && (some y : A | some y)", Just "all x : A | some x && some y : A | some y")
           ] $ \(variant, model, expected, lossy) -> si36_assertRendersIn variant model expected lossy
+
+-- Sigil-Logic/clafer#41: binary subtraction in constraints and assertions.
+-- Common spells unary minus (iMin) and binary subtraction (iSub) as the same
+-- string `-`, and the Alloy generators' transformExp rewrote every
+-- `IFunExp "-" (e1:_)` -- a binary subtraction included -- to `-1.mul[e1]`,
+-- so `[ x = 5 - 2 ]` rendered as `(-1.mul[5])` with the right operand
+-- dropped, and `alloy exec` found counterexamples to `assert [ x = 3 ]`
+-- (Choco was right: `sub(constant(5), constant(2))`).  The rewrite now
+-- matches a single operand only, so a binary `-` reaches genOp's `.minus[`
+-- in both the static and the temporal generator, while unary minus keeps
+-- its `-1.mul[e]` rendering.  Goals are not emitted by either Alloy
+-- generator (an IEGoal renders as the empty string), so a fact and an
+-- assertion are the two positions in which a subtraction reaches the
+-- renderer.  The temporal generator (AlloyLtl) has its own transformExp; the
+-- `final` modifier routes a model through it, as in the #31/#33 tests.
+
+si41_model :: String -> String
+si41_model constraint = "x -> integer\ny -> integer\n" ++ constraint ++ "\n"
+
+case_si41_alloy_renders_binary_subtraction_with_minus :: Assertion
+case_si41_alloy_renders_binary_subtraction_with_minus =
+    forM_ [ ("literal operands", "[ x = 5 - 2 ]", "(c0_x.@c0_x_ref) = (5.minus[2])")
+          , ("right-nested", "[ x = 1 - (2 - 3) ]", "(c0_x.@c0_x_ref) = (1.minus[(2.minus[3])])")
+          , ("left-nested", "[ x = (1 - 2) - 3 ]", "(c0_x.@c0_x_ref) = ((1.minus[2]).minus[3])")
+          , ("under a product", "[ x = (1 - 2) * 3 ]", "(c0_x.@c0_x_ref) = ((1.minus[2]).mul[3])")
+          , ("clafer operands", "[ x = y - x ]", "(c0_x.@c0_x_ref) = ((c0_y.@c0_y_ref).minus[(c0_x.@c0_x_ref)])")
+          ] $ \(variant, constraint, expected) -> do
+        let alloyCode = si31_alloy (si41_model constraint)
+        si29_assertContains variant ("fact { " ++ expected ++ " }") alloyCode
+        (not $ "-1.mul[" `isInfixOf` alloyCode)
+            @? (variant ++ ": a binary `-` must not be rendered as the negation of its left operand:\n" ++ alloyCode)
+
+case_si41_alloy_renders_binary_subtraction_in_assertions :: Assertion
+case_si41_alloy_renders_binary_subtraction_in_assertions = do
+    let alloyCode = si31_alloy "x -> integer\n[ x = 5 - 2 ]\nassert [ x = 5 - 2 ]\nassert [ x = 3 ]\n"
+    si29_assertContains "fact" "fact { (c0_x.@c0_x_ref) = (5.minus[2]) }" alloyCode
+    si29_assertContains "assertion" "assert assertOnLine_3 { (c0_x.@c0_x_ref) = (5.minus[2]) }" alloyCode
+    si29_assertContains "literal assertion" "assert assertOnLine_4 { (c0_x.@c0_x_ref) = 3 }" alloyCode
+
+case_si41_alloy_still_renders_unary_minus_as_a_product :: Assertion
+case_si41_alloy_still_renders_unary_minus_as_a_product =
+    forM_ [ ("literal", "[ x = -1 ]", "(c0_x.@c0_x_ref) = (-1.mul[1])")
+          , ("sum", "[ x = -(2 + 1) ]", "(c0_x.@c0_x_ref) = (-1.mul[(2.plus[1])])")
+          , ("subtraction", "[ x = -(5 - 2) ]", "(c0_x.@c0_x_ref) = (-1.mul[(5.minus[2])])")
+          , ("clafer", "[ x = -x ]", "(c0_x.@c0_x_ref) = (-1.mul[(c0_x.@c0_x_ref)])")
+          ] $ \(variant, constraint, expected) ->
+        si29_assertContains variant ("fact { " ++ expected ++ " }") (si31_alloy (si41_model constraint))
+
+case_si41_temporal_alloy_renders_binary_subtraction_with_minus :: Assertion
+case_si41_temporal_alloy_renders_binary_subtraction_with_minus = do
+    let alloyLtlCode = si31_alloy "final marker\nx -> integer\ny -> integer\n[ x = 5 - 2 ]\n[ x = -(5 - 2) ]\n[ x = y - x ]\nassert [ x = 5 - 2 ]\n"
+    si29_assertContains "fact" "(@r_c0_x.t.@c0_x_ref.t) = (5.minus[2])" alloyLtlCode
+    si29_assertContains "unary minus over a subtraction" "(@r_c0_x.t.@c0_x_ref.t) = (-1.mul[(5.minus[2])])" alloyLtlCode
+    si29_assertContains "clafer operands" "(@r_c0_x.t.@c0_x_ref.t) = ((@r_c0_y.t.@c0_y_ref.t).minus[(@r_c0_x.t.@c0_x_ref.t)])" alloyLtlCode
+    si29_assertContains "assertion" "assert assertOnLine_7 { let t = first | (@r_c0_x.t.@c0_x_ref.t) = (5.minus[2]) }" alloyLtlCode
+    (not $ "-1.mul[5]" `isInfixOf` alloyLtlCode)
+        @? ("temporal: a binary `-` must not be rendered as the negation of its left operand:\n" ++ alloyLtlCode)
