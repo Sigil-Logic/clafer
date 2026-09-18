@@ -1,0 +1,50 @@
+open util/integer
+pred show {}
+run show for 1 but 2 c0_N
+
+abstract sig c0_N
+{ c0_N_ref : one Int }
+
+one sig c0_n1 extends c0_N
+{}
+
+fact { (some c0_n1) => ((c0_n1.@c0_N_ref) = 5) }
+one sig c0_n2 extends c0_N
+{}
+
+fact { (some c0_n2) => ((c0_n2.@c0_N_ref) = 2) }
+one sig c0_minusOne
+{ c0_minusOne_ref : one Int }
+
+fact { (c0_minusOne.@c0_minusOne_ref) = ((sum temp : c0_N | temp.@c0_N_ref).minus[1]) }
+assert assertOnLine_23 { (c0_minusOne.@c0_minusOne_ref) = 6 }
+check assertOnLine_23 for 1 but 2 c0_N
+
+one sig c0_plusOne
+{ c0_plusOne_ref : one Int }
+
+fact { (c0_plusOne.@c0_plusOne_ref) = ((sum temp : c0_N | temp.@c0_N_ref).plus[1]) }
+assert assertOnLine_27 { (c0_plusOne.@c0_plusOne_ref) = 8 }
+check assertOnLine_27 for 1 but 2 c0_N
+
+one sig c0_doubled
+{ c0_doubled_ref : one Int }
+
+fact { (c0_doubled.@c0_doubled_ref) = ((sum temp : c0_N | temp.@c0_N_ref).mul[2]) }
+assert assertOnLine_31 { (c0_doubled.@c0_doubled_ref) = 14 }
+check assertOnLine_31 for 1 but 2 c0_N
+
+one sig c0_total
+{ c0_total_ref : one Int }
+
+fact { (c0_total.@c0_total_ref) = (sum temp : c0_N | temp.@c0_N_ref) }
+assert assertOnLine_36 { (c0_total.@c0_total_ref) = 7 }
+check assertOnLine_36 for 1 but 2 c0_N
+
+one sig c0_setMinusOne
+{ c0_setMinusOne_ref : one Int }
+
+fact { (c0_setMinusOne.@c0_setMinusOne_ref) = ((c0_N.@c0_N_ref).minus[1]) }
+assert assertOnLine_41 { (c0_setMinusOne.@c0_setMinusOne_ref) = 6 }
+check assertOnLine_41 for 1 but 2 c0_N
+

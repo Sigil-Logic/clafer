@@ -1,0 +1,41 @@
+// Sigil-Logic/clafer#46: `sum` and `product` take a set of integer clafers.
+// An integer operand -- arithmetic (`sum (N - 1)`), a cardinality (`sum
+// (#N)`), or a literal (`sum 5`) -- has no meaning in either backend: the
+// Alloy generators decomposed it as a navigation path and rendered the
+// illegal join `sum temp : N.ref | temp.1` (or aborted), and chocosolver
+// rejects the generated `sum(sub(N, 1))` when type-checking (`Cannot
+// sum(int)`).  The resolver now declines such operands with a positioned
+// semantic error (test/negative/si46-*).  This model pins the supported
+// shapes: the aggregate outside the arithmetic, the navigation forms of the
+// operand, and arithmetic over the set itself, which both backends already
+// read as arithmetic over the set's sum (Alloy coerces an integer set with an
+// implicit `sum`; chocosolver's `sub(N, 1)` evaluates to 6 here).  The
+// assertions let the gated Choco leg confirm the values; the .als was
+// executed with `alloy exec` when this model was added (every check UNSAT).
+
+abstract N ->> integer
+n1 : N = 5
+n2 : N = 2
+
+// the aggregate outside the arithmetic: the supported spelling
+minusOne -> integer
+[ minusOne = sum N - 1 ]
+assert [ minusOne = 6 ]
+
+plusOne -> integer
+[ plusOne = sum N + 1 ]
+assert [ plusOne = 8 ]
+
+doubled -> integer
+[ doubled = (sum N) * 2 ]
+assert [ doubled = 14 ]
+
+// the navigation forms of the operand
+total -> integer
+[ total = sum N.dref ]
+assert [ total = 7 ]
+
+// arithmetic over the set is arithmetic over its sum in both backends
+setMinusOne -> integer
+[ setMinusOne = N - 1 ]
+assert [ setMinusOne = 6 ]

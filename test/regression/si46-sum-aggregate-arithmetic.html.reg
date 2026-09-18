@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="X-UA-Compatible" content="IE=9">
+<style>.identifier{}
+.keyword{font-weight: bold;}
+.tKeyword{font-style: oblique;}
+.reference{}
+.code { background-color: lightgray; padding: 5px 5px 5px 5px; border: 1px solid darkgray; margin-bottom: 15px;
+        font-family: Pragmata, Menlo, 'DejaVu LGC Sans Mono', 'DejaVu Sans Mono', Consolas, 'Everson Mono', 'Lucida Console', 'Andale Mono', 'Nimbus Mono L', 'Liberation Mono', FreeMono, 'Osaka Monospaced', Courier, 'New Courier', monospace; }
+.standalonecomment { color: green; font-style:italic }
+.inlinecomment { color: green; padding-left:20px; font-style:italic }
+.error{background-color: yellow; color: red }
+.deprecated{color: orange }
+.indent{padding-left:20px}
+a[href$='Lookup failed'] {color: red}
+a[href$='Uid not found'] {color: red}
+a[href$='Ambiguous name'] {color: yellow}
+</style></head>
+<body>
+
+<div>
+<span class="keyword">abstract</span> <span class="claferDecl" id="c0_N">N</span><span class="keyword"> ->> </span><a href="#integer"><span class="reference">integer</span></a></div>
+
+
+<div>
+<span class="claferDecl" id="c0_n1">n1</span><span class="keyword"> : </span><a href="#c0_N"><span class="reference">N</span></a> = 5</div>
+
+
+<div>
+<span class="claferDecl" id="c0_n2">n2</span><span class="keyword"> : </span><a href="#c0_N"><span class="reference">N</span></a> = 2</div>
+
+
+<div>
+<span class="claferDecl" id="c0_minusOne">minusOne</span><span class="keyword"> -> </span><a href="#integer"><span class="reference">integer</span></a></div>
+
+
+<div>
+<span class="keyword">[</span> <a href="#c0_minusOne"><span class="reference">minusOne</span></a> = <span class="keyword">sum </span><a href="#c0_N"><span class="reference">N</span></a> - 1 <span class="keyword">]</span></div>
+
+
+<div>
+<span class="keyword">assert [</span> <a href="#c0_minusOne"><span class="reference">minusOne</span></a> = 6 <span class="keyword">]</span></div>
+
+
+<div>
+<span class="claferDecl" id="c0_plusOne">plusOne</span><span class="keyword"> -> </span><a href="#integer"><span class="reference">integer</span></a></div>
+
+
+<div>
+<span class="keyword">[</span> <a href="#c0_plusOne"><span class="reference">plusOne</span></a> = <span class="keyword">sum </span><a href="#c0_N"><span class="reference">N</span></a> + 1 <span class="keyword">]</span></div>
+
+
+<div>
+<span class="keyword">assert [</span> <a href="#c0_plusOne"><span class="reference">plusOne</span></a> = 8 <span class="keyword">]</span></div>
+
+
+<div>
+<span class="claferDecl" id="c0_doubled">doubled</span><span class="keyword"> -> </span><a href="#integer"><span class="reference">integer</span></a></div>
+
+
+<div>
+<span class="keyword">[</span> <a href="#c0_doubled"><span class="reference">doubled</span></a> = <span class="keyword">sum </span><a href="#c0_N"><span class="reference">N</span></a> * 2 <span class="keyword">]</span></div>
+
+
+<div>
+<span class="keyword">assert [</span> <a href="#c0_doubled"><span class="reference">doubled</span></a> = 14 <span class="keyword">]</span></div>
+
+
+<div>
+<span class="claferDecl" id="c0_total">total</span><span class="keyword"> -> </span><a href="#integer"><span class="reference">integer</span></a></div>
+
+
+<div>
+<span class="keyword">[</span> <a href="#c0_total"><span class="reference">total</span></a> = <span class="keyword">sum </span><a href="#c0_N"><span class="reference">N</span></a>.<span class="keyword">dref</span> <span class="keyword">]</span></div>
+
+
+<div>
+<span class="keyword">assert [</span> <a href="#c0_total"><span class="reference">total</span></a> = 7 <span class="keyword">]</span></div>
+
+
+<div>
+<span class="claferDecl" id="c0_setMinusOne">setMinusOne</span><span class="keyword"> -> </span><a href="#integer"><span class="reference">integer</span></a></div>
+
+
+<div>
+<span class="keyword">[</span> <a href="#c0_setMinusOne"><span class="reference">setMinusOne</span></a> = <a href="#c0_N"><span class="reference">N</span></a> - 1 <span class="keyword">]</span></div>
+
+
+<div>
+<span class="keyword">assert [</span> <a href="#c0_setMinusOne"><span class="reference">setMinusOne</span></a> = 6 <span class="keyword">]</span></div>
+
+</body>
+</html>
