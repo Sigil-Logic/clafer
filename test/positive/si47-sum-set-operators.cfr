@@ -1,0 +1,43 @@
+// Sigil-Logic/clafer#47: `sum` over a set operator aggregates the value of
+// every member of the set expression, in both backends.  Before, the type
+// resolver dereferenced only the last operand (`sum (x ++ y)` rendered `sum
+// temp : (c0_x + c0_y) | temp.@c0_y_ref` in Alloy, so the atoms of `x`
+// contributed nothing, and `sum(union(global(c0_x), joinRef(global(c0_y))))`
+// in Choco, which chocosolver rejects when type-checking) or both operands to
+// integer sets (`sum (N -- n1)`: `Cannot sum(int)`).  Now the set expression
+// is dereferenced as a whole: Alloy joins each member with the union of the
+// reference relations (`temp.(@c0_N_ref + @c0_m_ref)`), and Choco aggregates
+// per reference and adds the parts (`add(sum(...), sum(...))`), which is
+// exact because atoms with different references are disjoint.  The
+// assertions let the gated Choco leg confirm the values; the .als was
+// executed with `alloy exec` when this model was added (every check UNSAT).
+// Values stay within the default integer range (-8..7).
+
+abstract N ->> integer
+n1 : N = 3
+n2 : N = 1
+n3 : N = 2
+m -> integer = 1
+
+// a union of clafers under different references: both are summed
+unionSum -> integer
+[ unionSum = sum (n1 ++ m) ]
+assert [ unionSum = 4 ]
+
+// difference and intersection under one reference
+restSum -> integer
+[ restSum = sum (N -- n1) ]
+assert [ restSum = 3 ]
+
+commonSum -> integer
+[ commonSum = sum (N ** n1) ]
+assert [ commonSum = 3 ]
+
+// nested operators, and nested operators over two references
+nestedSum -> integer
+[ nestedSum = sum ((n1 ++ n2) -- n1) ]
+assert [ nestedSum = 1 ]
+
+mixedSum -> integer
+[ mixedSum = sum (n1 ++ (m ++ n2)) ]
+assert [ mixedSum = 5 ]

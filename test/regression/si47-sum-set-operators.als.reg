@@ -1,0 +1,58 @@
+open util/integer
+pred show {}
+run show for 1 but 3 c0_N
+
+abstract sig c0_N
+{ c0_N_ref : one Int }
+
+one sig c0_n1 extends c0_N
+{}
+
+fact { (some c0_n1) => ((c0_n1.@c0_N_ref) = 3) }
+one sig c0_n2 extends c0_N
+{}
+
+fact { (some c0_n2) => ((c0_n2.@c0_N_ref) = 1) }
+one sig c0_n3 extends c0_N
+{}
+
+fact { (some c0_n3) => ((c0_n3.@c0_N_ref) = 2) }
+one sig c0_m
+{ c0_m_ref : one Int }
+
+fact { (some c0_m) => ((c0_m.@c0_m_ref) = 1) }
+one sig c0_unionSum
+{ c0_unionSum_ref : one Int }
+
+fact { (c0_unionSum.@c0_unionSum_ref) = (sum temp : (c0_n1 + c0_m) | temp.(@c0_N_ref + @c0_m_ref)) }
+assert assertOnLine_25 { (c0_unionSum.@c0_unionSum_ref) = 4 }
+check assertOnLine_25 for 1 but 3 c0_N
+
+one sig c0_restSum
+{ c0_restSum_ref : one Int }
+
+fact { (c0_restSum.@c0_restSum_ref) = (sum temp : (c0_N - c0_n1) | temp.@c0_N_ref) }
+assert assertOnLine_30 { (c0_restSum.@c0_restSum_ref) = 3 }
+check assertOnLine_30 for 1 but 3 c0_N
+
+one sig c0_commonSum
+{ c0_commonSum_ref : one Int }
+
+fact { (c0_commonSum.@c0_commonSum_ref) = (sum temp : (c0_N & c0_n1) | temp.@c0_N_ref) }
+assert assertOnLine_34 { (c0_commonSum.@c0_commonSum_ref) = 3 }
+check assertOnLine_34 for 1 but 3 c0_N
+
+one sig c0_nestedSum
+{ c0_nestedSum_ref : one Int }
+
+fact { (c0_nestedSum.@c0_nestedSum_ref) = (sum temp : ((c0_n1 + c0_n2) - c0_n1) | temp.@c0_N_ref) }
+assert assertOnLine_39 { (c0_nestedSum.@c0_nestedSum_ref) = 1 }
+check assertOnLine_39 for 1 but 3 c0_N
+
+one sig c0_mixedSum
+{ c0_mixedSum_ref : one Int }
+
+fact { (c0_mixedSum.@c0_mixedSum_ref) = (sum temp : (c0_n1 + (c0_m + c0_n2)) | temp.(@c0_N_ref + @c0_m_ref)) }
+assert assertOnLine_43 { (c0_mixedSum.@c0_mixedSum_ref) = 5 }
+check assertOnLine_43 for 1 but 3 c0_N
+
