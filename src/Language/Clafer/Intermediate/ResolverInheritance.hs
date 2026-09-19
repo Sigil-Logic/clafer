@@ -258,9 +258,10 @@ unfoldableReferenceTargetMsg node =
 -- a primitive type (@sum integer@), or a local declared over a primitive type
 -- or a dereference (@all i : integer | sum i > 0@, @all i : N.dref | sum i@),
 -- with a semantic error positioned at the operand; locals are classified in
--- scope, so an inner clafer-bound local shadows an outer numeric one.  Both aggregates take a set of integer clafers -- @sum N@, @sum
--- N.dref@, @sum Feature.cost@ -- and neither backend gives another operand a
--- meaning: chocosolver rejects it when type-checking the generated
+-- scope, so an inner clafer-bound local shadows an outer numeric one.  Both
+-- aggregates take a set of integer clafers -- @sum N@, @sum N.dref@, @sum
+-- Feature.cost@ -- and neither backend gives another operand a meaning:
+-- chocosolver rejects it when type-checking the generated
 -- constraints (@Cannot sum(int)@), and the Alloy generators decompose the
 -- operand as a navigation path ('removeright' / 'getRight'), rendering @sum
 -- (N - 1)@ as the illegal join @sum temp : N.ref | temp.1@ and aborting on
@@ -268,7 +269,8 @@ unfoldableReferenceTargetMsg node =
 -- over a set already denotes the arithmetic over its sum in both backends
 -- (@N - 1@ is @(sum N) - 1@), so the aggregate belongs outside the
 -- arithmetic: @sum N - 1@.  A set-operator operand (@sum (x ++ y)@) is a set
--- expression and is not declined here (its rendering is #47).
+-- expression and is not declined here; its rendering is Sigil-Logic/clafer#47,
+-- which should revisit this note and the generators' notes when it lands.
 --
 -- Like 'rejectUnfoldableReferenceTargets' this runs from
 -- 'Language.Clafer.Intermediate.Resolver.resolveModule' after name
