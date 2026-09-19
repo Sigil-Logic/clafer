@@ -1149,13 +1149,18 @@ case_si46_set_operator_operands_are_not_declined =
 -- compiler with a `[bug]` message in every mode.  Per the Decision on #44,
 -- `Language.Clafer.desugar` declines the earliest `let` of the module with a
 -- semantic error positioned at the `let` keyword, before desugaring, naming
--- the binding as written and the inlining that replaces it -- the right-hand
--- side of a binding is a single identifier (a `Name`), so `let x = a in e`
--- is `e` with `a` written for `x` once a local that `e` itself declares under
--- the name `a` is renamed: in `[ let x = a in all a : A | x ]` the blind
+-- the binding as written and the scope-preserving rewrite that replaces it
+-- -- the right-hand side of a binding is a single, possibly `\\`-qualified
+-- name (a `Name`), so a `let` is always eliminable by writing the name for
+-- each use of the let-local while preserving the body's scopes.  A blind
+-- textual rewrite is not that: in `[ let x = a in all a : A | x ]` the
 -- rewrite `[ all a : A | a ]` is captured by the quantifier local (Alloy
--- `all a : c0_A | some a`), the scope-preserving `[ all z : A | a ]` is not
--- (`some c0_a`) -- HOARDE Codex, PR #50 Cycle 1.
+-- `all a : c0_A | some a`) where `[ all z : A | a ]` is not (`some c0_a`);
+-- with a qualified name the capture runs through the segment the resolver
+-- binds, `[ let x = A\\b in all b : A | x ]` versus `[ all z : A | A\\b ]`
+-- (`some b` versus `some c0_A.@r_c0_b`); and in `[ let x = a in all x : A |
+-- x ]` the inner local shadows the let-local, so the body stays as it is --
+-- HOARDE Codex, PR #50 Cycles 1 and 2.
 
 si44_assertRejected :: String -> ClaferArgs -> String -> Pos -> String -> String -> Assertion
 si44_assertRejected variant args' model expectedPos local bound =
@@ -1166,7 +1171,7 @@ si44_assertRejected variant args' model expectedPos local bound =
         Left errors -> assertFailure (variant ++ ": expected exactly one positioned semantic error, got " ++ show errors)
         Right _     -> assertFailure (variant ++ ": the model is not expected to compile")
   where
-    expected = "Unsupported expression: 'let " ++ local ++ " = " ++ bound ++ " in ...'.  Clafer does not implement let-expressions; write the body with " ++ bound ++ " in place of " ++ local ++ " instead (if the body declares its own local named " ++ bound ++ ", rename that local first)"
+    expected = "Unsupported expression: 'let " ++ local ++ " = " ++ bound ++ " in ...'.  Clafer does not implement let-expressions; write " ++ bound ++ " for each use of " ++ local ++ " in the body instead, preserving the body's scopes (a use of " ++ local ++ " bound by an inner local named " ++ local ++ " stays as it is; an inner local that " ++ bound ++ " would otherwise refer to is renamed first)"
 
 -- a `State` with an `xor flag` of `a` and `b`, and the given constraint on
 -- its fifth line
@@ -1174,11 +1179,12 @@ si44_state :: String -> String
 si44_state constraint = "State\n    xor flag\n        a\n        b\n    " ++ constraint ++ "\n"
 
 -- the rejected shapes -- a `let` in a constraint, parenthesized, in a
--- quantified body, in an assertion, in a goal, and the capture case (the
--- body declares a local under the bound name) -- with the position of the
--- `let`, the binding, and the model with the binding inlined, which is the
--- rewrite the message asks for (for the capture case, with the body's local
--- renamed)
+-- quantified body, in an assertion, in a goal, the capture cases (the body
+-- declares a local the bound name would refer to, unqualified and
+-- qualified), and the shadowing case (the body declares a local named like
+-- the let-local) -- with the position of the `let`, the binding, and the
+-- scope-preserving rewrite the message asks for (the body's local renamed
+-- for the capture cases; the body unchanged for the shadowing case)
 si44_shapes :: [(String, String, Pos, String, String, String)]
 si44_shapes =
     [ ("constraint", si44_state "[ let x = a in x ]", Pos 5 7, "x", "a", si44_state "[ a ]")
@@ -1187,6 +1193,8 @@ si44_shapes =
     , ("assertion", "A\n    b ?\nassert [ let x = A in some x.b ]\n", Pos 3 10, "x", "A", "A\n    b ?\nassert [ some A.b ]\n")
     , ("goal", "A *\n    b ?\n<< minimize let x = A in # x.b >>\n", Pos 3 13, "x", "A", "A *\n    b ?\n<< minimize # A.b >>\n")
     , ("capture", "A\na\n[ let x = a in all a : A | x ]\n", Pos 3 3, "x", "a", "A\na\n[ all z : A | a ]\n")
+    , ("qualified capture", "A\n    b\n[ let x = A\\b in all b : A | x ]\n", Pos 3 3, "x", "A\\b", "A\n    b\n[ all z : A | A\\b ]\n")
+    , ("shadowing", "A\na\n[ let x = a in all x : A | x ]\n", Pos 3 3, "x", "a", "A\na\n[ all x : A | x ]\n")
     ]
 
 -- rejected shapes without an inlined twin: a `let` as a transition guard, as
