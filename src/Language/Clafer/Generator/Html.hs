@@ -379,8 +379,8 @@ printTransition :: Transition -> Int -> Map.Map Span [Ir] -> Bool -> [(Span, Str
 printTransition (TransitionEmpty _) _ _ _ _ = ""
 printTransition (Transition _ (SyncTransArrow _) exp2) indent irMap html comments = (if html then "<span class=\"tKeyword\"> --&gt;&gt; </span>" else " -->> ") ++ printExp exp2 indent irMap html comments
 printTransition (Transition _ (NextTransArrow _) exp2) indent irMap html comments = (if html then "<span class=\"tKeyword\"> --&gt; </span>" else " --> ") ++ printExp exp2 indent irMap html comments
-printTransition (Transition _ (GuardedSyncTransArrow _ (TransGuard _ guardExp)) exp2) indent irMap html comments = while html "<span class=\"tKeyword\">" ++ " -[" ++ while html "</span>" ++ printExpIn 1 guardExp indent irMap html comments ++ (if html then "<span class=\"tKeyword\">]--&gt;&gt; </span>" else "]->> ")  ++ printExp exp2 indent irMap html comments
-printTransition (Transition _ (GuardedNextTransArrow _ (TransGuard _ guardExp)) exp2) indent irMap html comments = while html "<span class=\"tKeyword\">" ++ " -[" ++ while html "</span>" ++ printExpIn 1 guardExp indent irMap html comments ++ (if html then "<span class=\"tKeyword\">]--&gt; </span>" else "]-> ") ++ printExp exp2 indent irMap html comments
+printTransition (Transition _ (GuardedSyncTransArrow _ (TransGuard _ guardExp)) exp2) indent irMap html comments = while html "<span class=\"tKeyword\">" ++ " -[" ++ while html "</span>" ++ printExpIn 1 guardExp indent irMap html comments ++ (if html then "<span class=\"tKeyword\">]-&gt;&gt; </span>" else "]->> ")  ++ printExp exp2 indent irMap html comments
+printTransition (Transition _ (GuardedNextTransArrow _ (TransGuard _ guardExp)) exp2) indent irMap html comments = while html "<span class=\"tKeyword\">" ++ " -[" ++ while html "</span>" ++ printExpIn 1 guardExp indent irMap html comments ++ (if html then "<span class=\"tKeyword\">]-&gt; </span>" else "]-> ") ++ printExp exp2 indent irMap html comments
 
 -- | The grammar level of the production that builds an expression node: the
 -- @N@ of the @ExpN@ nonterminal in @ParClafer.y@ whose production the
@@ -488,8 +488,8 @@ printExp :: Exp -> Int -> Map.Map Span [Ir] -> Bool -> [(Span, String)] -> Strin
 printExp e indent irMap html comments = case e of
   TransitionExp _ exp1 (SyncTransArrow _) exp2 -> sub 1 exp1 ++ (if html then "<span class=\"tKeyword\"> --&gt;&gt; </span>" else " -->> ") ++ sub 0 exp2
   TransitionExp _ exp1 (NextTransArrow _) exp2 -> sub 1 exp1 ++ (if html then "<span class=\"tKeyword\"> --&gt; </span>" else " --> ") ++ sub 0 exp2
-  TransitionExp _ exp1 (GuardedSyncTransArrow _ (TransGuard _ guardExp)) exp2 -> sub 1 exp1 ++ while html "<span class=\"tKeyword\">" ++ " -[" ++ while html "</span>" ++ sub 1 guardExp ++ (if html then "<span class=\"tKeyword\">]--&gt;&gt; </span>" else "]->> ")  ++ sub 0 exp2
-  TransitionExp _ exp1 (GuardedNextTransArrow _ (TransGuard _ guardExp)) exp2 -> sub 1 exp1 ++ while html "<span class=\"tKeyword\">" ++ " -[" ++ while html "</span>" ++ sub 1 guardExp ++ (if html then "<span class=\"tKeyword\">]--&gt; </span>" else "]-> ") ++ sub 0 exp2
+  TransitionExp _ exp1 (GuardedSyncTransArrow _ (TransGuard _ guardExp)) exp2 -> sub 1 exp1 ++ while html "<span class=\"tKeyword\">" ++ " -[" ++ while html "</span>" ++ sub 1 guardExp ++ (if html then "<span class=\"tKeyword\">]-&gt;&gt; </span>" else "]->> ")  ++ sub 0 exp2
+  TransitionExp _ exp1 (GuardedNextTransArrow _ (TransGuard _ guardExp)) exp2 -> sub 1 exp1 ++ while html "<span class=\"tKeyword\">" ++ " -[" ++ while html "</span>" ++ sub 1 guardExp ++ (if html then "<span class=\"tKeyword\">]-&gt; </span>" else "]-> ") ++ sub 0 exp2
   EDeclAllDisj _ decl exp' -> "all disj " ++ printDecl decl indent irMap html comments ++ " | " ++ sub 1 exp'
   EDeclAll _     decl exp' -> "all " ++ printDecl decl indent irMap html comments ++ " | " ++ sub 1 exp'
   EDeclQuantDisj _ quant' decl exp' -> printQuant quant' html ++ "disj" ++ printDecl decl indent irMap html comments ++ " | " ++ sub 1 exp'
@@ -520,7 +520,7 @@ printExp e indent irMap html comments = case e of
   TmpEventually _ exp'   -> while html "<span class=\"tKeyword\">" ++ "eventually " ++ while html "</span>" ++ sub 10 exp'
   LtlG _ exp'            -> "G " ++ sub 10 exp'
   TmpGlobally _ exp'     -> while html "<span class=\"tKeyword\">" ++ "globally " ++ while html "</span>" ++ sub 10 exp'
-  LtlX _ exp'            -> "F " ++ sub 10 exp'
+  LtlX _ exp'            -> "X " ++ sub 10 exp'
   TmpNext _ exp'         -> while html "<span class=\"tKeyword\">" ++ "next " ++ while html "</span>" ++ sub 10 exp'
   ENeg _ exp'            -> " ! " ++ sub 11 exp'
   ELt _ exp1 exp2        -> sub 15 exp1 ++ (if html then " &lt; " else " < ") ++ sub 16 exp2
