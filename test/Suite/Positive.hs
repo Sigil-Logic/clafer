@@ -1280,6 +1280,8 @@ case_si47_reference_chains_under_a_set_operator_follow_the_chain = do
     si29_assertContains "three hops (Choco)" "Constraint(equal(joinRef(global(c0_total)), sum(union(joinRef(joinRef(global(c0_r1))), joinRef(joinRef(global(c0_r2)))))));" (si31_choco threeHop)
     si47_assertRefused "a chain reaching a clafer without a reference, next to a valid one" defaultClaferArgs "abstract A\na1 : A\nabstract N ->> integer\nn1 : N = 3\nr1 -> A = a1\nr2 -> N = n1\ntotal -> integer\n[ total = sum (r1 ++ r2) ]\n" (Pos 8 16)
         "Function 'sum' cannot be performed on a set expression over 'r1', whose reference chain reaches 'A', which has no reference"
+    si47_assertRefused "a chain reaching a clafer without a reference in the second operand (HOARDE Junie, Cycle 3)" defaultClaferArgs "abstract A\na1 : A\nabstract N ->> integer\nn1 : N = 3\nr1 -> N = n1\nr2 -> A = a1\ntotal -> integer\n[ total = sum (r1 ++ r2) ]\n" (Pos 8 22)
+        "Function 'sum' cannot be performed on a set expression over 'r2', whose reference chain reaches 'A', which has no reference"
     si47_assertRefused "chains reaching a clafer without a reference on both sides" defaultClaferArgs "abstract A\na1 : A\nr1 -> A = a1\nr2 -> A = a1\ntotal -> integer\n[ total = sum (r1 ++ r2) ]\n" (Pos 6 16)
         "Function 'sum' cannot be performed on a set expression over 'r1', whose reference chain reaches 'A', which has no reference"
 
@@ -1296,13 +1298,15 @@ case_si47_reference_chains_under_a_set_operator_follow_the_chain = do
 case_si47_locals_over_set_expressions_without_the_resolver :: Assertion
 case_si47_locals_over_set_expressions_without_the_resolver = do
     let skip = defaultClaferArgs{mode = [Alloy, Choco], skip_resolver = True}
-        results = fromRight $ compileOneFragment skip "x -> integer\ny -> integer\nm -> integer\n[ all n : (x ++ y) | sum n > 0 ]\n[ all n : (x ++ y) | sum (n ++ m) > 0 ]\n[ all n : x | sum (n ++ m) > 0 ]\n"
+        results = fromRight $ compileOneFragment skip "x -> integer\ny -> integer\nm -> integer\n[ all n : (x ++ y) | sum n > 0 ]\n[ all n : (x ++ y) | sum (n ++ m) > 0 ]\n[ all n : x | sum (n ++ m) > 0 ]\n[ all n : x | sum n > 0 ]\n"
         alloyCode = outputCode $ fromJust $ Map.lookup Alloy results
         chocoCode = outputCode $ fromJust $ Map.lookup Choco results
     si29_assertContains "multi-reference local as the operand (Alloy)" "fact { all  n : x + y | (sum temp : n | temp.(@x_ref + @y_ref)) > 0 }" alloyCode
     si29_assertContains "multi-reference local as the operand (Choco)" "Constraint(all([decl([n = local(\"n\")], union(global(x), global(y)))], greaterThan(add(sum(inter(n, global(x))), sum(inter(n, global(y)))), constant(0))));" chocoCode
     si29_assertContains "multi-reference local inside a set operator (Alloy)" "fact { all  n : x + y | (sum temp : (n + m) | temp.(@x_ref + @y_ref + @m_ref)) > 0 }" alloyCode
     si29_assertContains "multi-reference local inside a set operator (Choco)" "Constraint(all([decl([n = local(\"n\")], union(global(x), global(y)))], greaterThan(add(sum(inter(n, global(x))), add(sum(inter(n, global(y))), sum(global(m)))), constant(0))));" chocoCode
+    si29_assertContains "a local over one clafer as the operand (Alloy, HOARDE Junie Cycle 3)" "fact { all  n : x | (sum temp : n | temp.@x_ref) > 0 }" alloyCode
+    si29_assertContains "a local over one clafer as the operand (Choco)" "Constraint(all([decl([n = local(\"n\")], global(x))], greaterThan(sum(n), constant(0))));" chocoCode
     si29_assertContains "a local over one clafer (Alloy)" "fact { all  n : x | (sum temp : (n + m) | temp.(@x_ref + @m_ref)) > 0 }" alloyCode
     si29_assertContains "a local over one clafer (Choco)" "Constraint(all([decl([n = local(\"n\")], global(x))], greaterThan(add(sum(n), sum(global(m))), constant(0))));" chocoCode
     si46_assertRejected "a local declared over a set operator over dereferences" defaultClaferArgs{skip_resolver = True}
