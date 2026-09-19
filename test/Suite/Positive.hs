@@ -752,11 +752,10 @@ case_si33_rejection_precedes_navigation_and_survives_skip_resolver = do
 -- view and in the clafer's Graph tooltip (which carries nested constraints
 -- only).  Each generator escapes the text its own way -- the HTML printer
 -- emits entities for `< > && || / %` (but the set operators `<:` and `:>`
--- raw, and the guard-closing arrows `]->`/`]->>` as `]-->`/`]-->>`, #42)
--- and the Graph generator escapes `&`, `->`, and `->>` in the tooltip -- so
--- the expectations are stated as source text and encoded per generator here
--- (HOARDE Codex, PR #43 Cycle 1: the encoders must cover every branch the
--- printers take for the shapes under test).
+-- raw) and the Graph generator escapes `&`, `->`, and `->>` in the tooltip
+-- -- so the expectations are stated as source text and encoded per generator
+-- here (HOARDE Codex, PR #43 Cycle 1: the encoders must cover every branch
+-- the printers take for the shapes under test).
 
 si36_results :: String -> Map.Map ClaferMode CompilerResult
 si36_results model = fromRight $ compileOneFragment defaultClaferArgs{mode = [Html, Graph]} model
@@ -779,22 +778,19 @@ si36_model constraint = "A\n    a -> integer\n    [ " ++ constraint ++ " ]\n"
 
 -- the spellings the HTML printer emits for the operators used below: the
 -- set operators `<:` and `:>` are raw (checked before the relational `<`
--- and `>`), the guard-closing transition arrows are the printer's `]-->`
--- and `]-->>` (a pre-existing spelling of the source's `]->`/`]->>`, tracked
--- under #42; the Graph text keeps the source spelling), the rest are entities
+-- and `>`), the rest are entities (the guard-closing transition arrows
+-- `]->`/`]->>` among them)
 si36_htmlEncode :: String -> String
-si36_htmlEncode ('<':':':rest)         = "<:" ++ si36_htmlEncode rest
-si36_htmlEncode (':':'>':rest)         = ":>" ++ si36_htmlEncode rest
-si36_htmlEncode (']':'-':'>':'>':rest) = "]--&gt;&gt;" ++ si36_htmlEncode rest
-si36_htmlEncode (']':'-':'>':rest)     = "]--&gt;" ++ si36_htmlEncode rest
-si36_htmlEncode ('&':'&':rest)         = "&amp;&amp;" ++ si36_htmlEncode rest
-si36_htmlEncode ('|':'|':rest)         = "&#124;&#124;" ++ si36_htmlEncode rest
-si36_htmlEncode ('<':rest)             = "&lt;" ++ si36_htmlEncode rest
-si36_htmlEncode ('>':rest)             = "&gt;" ++ si36_htmlEncode rest
-si36_htmlEncode ('/':rest)             = "&#47;" ++ si36_htmlEncode rest
-si36_htmlEncode ('%':rest)             = "&#37;" ++ si36_htmlEncode rest
-si36_htmlEncode (c:rest)               = c : si36_htmlEncode rest
-si36_htmlEncode []                     = []
+si36_htmlEncode ('<':':':rest) = "<:" ++ si36_htmlEncode rest
+si36_htmlEncode (':':'>':rest) = ":>" ++ si36_htmlEncode rest
+si36_htmlEncode ('&':'&':rest) = "&amp;&amp;" ++ si36_htmlEncode rest
+si36_htmlEncode ('|':'|':rest) = "&#124;&#124;" ++ si36_htmlEncode rest
+si36_htmlEncode ('<':rest)     = "&lt;" ++ si36_htmlEncode rest
+si36_htmlEncode ('>':rest)     = "&gt;" ++ si36_htmlEncode rest
+si36_htmlEncode ('/':rest)     = "&#47;" ++ si36_htmlEncode rest
+si36_htmlEncode ('%':rest)     = "&#37;" ++ si36_htmlEncode rest
+si36_htmlEncode (c:rest)       = c : si36_htmlEncode rest
+si36_htmlEncode []             = []
 
 -- the escaping the Graph generator applies to a tooltip (`Graph.htmlChars`:
 -- `&`, then `->>` before `->`, in production order)
@@ -958,6 +954,56 @@ case_si41_temporal_alloy_renders_subtraction_under_ltl_operators = do
           ] $ \(variant, expected) -> si29_assertContains variant expected alloyLtlCode
     (not $ "-1.mul[" `isInfixOf` alloyLtlCode)
         @? ("LTL operators: a binary `-` must not be rendered as the negation of its left operand:\n" ++ alloyLtlCode)
+
+-- Sigil-Logic/clafer#42: the printer spelled the LTL next operator `X` as
+-- `F` (the `LtlX` alternative of `Html.printExp` emitted the eventually
+-- operator's spelling), and the HTML view spelled the guard-closing
+-- transition arrows with an extra dash, `]-->`/`]-->>` for the source's
+-- `]->`/`]->>` (the `html` branch of the guarded alternatives of `printExp`
+-- and `printTransition`; the Graph text was right).  Both views render
+-- through the same printer, so the si36 helpers pin the fixed spelling in
+-- the HTML view and in the Graph tooltip together, and pin the old spelling
+-- absent.  The guarded arrows are pinned in both positions the grammar
+-- gives them: the transition expression in a constraint (`printExp`) and
+-- the clafer-level transition (`printTransition`).
+
+-- a state clafer with three alternatives, over which the temporal
+-- constraint is nested (so that it reaches the Graph tooltip)
+si42_stateModel :: String -> String
+si42_stateModel constraint = "State\n    xor flag\n        a\n        b\n        c\n    [ " ++ constraint ++ " ]\n"
+
+case_si42_html_and_graph_spell_the_next_operator_as_X :: Assertion
+case_si42_html_and_graph_spell_the_next_operator_as_X =
+    forM_ [ ("reproducer", "X a", "X a", Just "F a")
+          , ("negated operand", "X !a", "X  ! a", Just "F  ! a")
+          , ("next under eventually and globally", "F X a && G X b", "F X a && G X b", Just "F F a")
+          , ("the TrafficLight constraint", "G (a && X !b) => X (!b W a)", "G (a && X  ! b) => X ( ! b W a)", Just "F  ! b")
+          , ("the keyword form is unchanged", "next a", "next a", Nothing)
+          ] $ \(variant, constraint, expected, lossy) ->
+        si36_assertRendersIn variant (si42_stateModel constraint) expected lossy
+
+case_si42_html_and_graph_spell_the_guard_closing_arrows_in_constraints :: Assertion
+case_si42_html_and_graph_spell_the_guard_closing_arrows_in_constraints =
+    forM_ [ ("guarded next transition", "a -[b]-> c", "a -[b]-> c", Just "a -[b]--> c")
+          , ("guarded synchronous transition", "a -[b]->> c", "a -[b]->> c", Just "a -[b]-->> c")
+          , ("guard with a negation", "a -[!b]->> c", "a -[ ! b]->> c", Just "a -[ ! b]-->> c")
+          ] $ \(variant, constraint, expected, lossy) ->
+        si36_assertRendersIn variant (si42_stateModel constraint) expected lossy
+
+case_si42_html_and_graph_spell_the_guard_closing_arrows_of_clafer_transitions :: Assertion
+case_si42_html_and_graph_spell_the_guard_closing_arrows_of_clafer_transitions =
+    forM_ [ ("guarded next transition", "b -[a]-> c", "b -[a]--> c")
+          , ("guarded synchronous transition", "b -[a]->> c", "b -[a]-->> c")
+          ] $ \(variant, transition, lossy) -> do
+        let model    = "State\n    xor flag\n        a\n        " ++ transition ++ "\n        c\n"
+            htmlText = si36_htmlText model
+            dotCode  = si36_graph model
+        si29_assertContains ("HTML, " ++ variant) (si36_htmlEncode transition) htmlText
+        si29_assertContains ("Graph, " ++ variant) (si36_graphEncode transition) dotCode
+        (not $ si36_htmlEncode lossy `isInfixOf` htmlText)
+            @? ("HTML, " ++ variant ++ ": the extra-dash spelling `" ++ lossy ++ "` must be gone:\n" ++ htmlText)
+        (not $ si36_graphEncode lossy `isInfixOf` dotCode)
+            @? ("Graph, " ++ variant ++ ": the extra-dash spelling `" ++ lossy ++ "` must be gone:\n" ++ dotCode)
 
 -- Sigil-Logic/clafer#46: `sum` and `product` take a set of integer clafers;
 -- an operand that is an integer expression -- arithmetic, a cardinality, a
