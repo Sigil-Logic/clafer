@@ -434,10 +434,16 @@ parse =
       isParseable (PT _ (T_PosChoco _))        = False
       isParseable _                            = True
 
+-- | Desugars the AST into the IR.  A let-expression has no desugaring
+-- (Sigil-Logic/clafer#44): the earliest one in the module is declined with a
+-- semantic error positioned at its @let@ before 'desugarModule' runs, so the
+-- decline holds in every mode and under @--skip-resolver@.
 desugar :: Monad m => Maybe URL -> ClaferT m IModule
 desugar mURL = do
   ast' <- getAst
-  return $ desugarModule mURL ast'
+  case letExpressions ast' of
+    letExp : _ -> throwErr (SemanticErr (getSpan letExp) (unsupportedLetMsg letExp) :: CErr Span)
+    []         -> return $ desugarModule mURL ast'
 
 -- | Compiles the AST into IR.
 compile :: Monad m => IModule -> ClaferT m ()
