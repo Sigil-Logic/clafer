@@ -375,12 +375,27 @@ printInitHow :: InitHow -> String
 printInitHow (InitConstant _) = " = "
 printInitHow (InitDefault _) = " := "
 
+-- | The arrow of a transition, with its guard (if any) printed at the level
+-- the grammar admits for it (@Exp1@): the arrow and the guard brackets are
+-- keywords in the HTML view, and the arrows are spelled as in the source in
+-- both views -- @-->@, @-->>@, @-[ g ]->@, @-[ g ]->>@ -- with @>@ as an
+-- entity in the HTML view (Sigil-Logic/clafer#42).  The clafer-level
+-- transition ('printTransition') and the transition expression ('printExp')
+-- share it.
+printTransArrow :: TransArrow -> Int -> Map.Map Span [Ir] -> Bool -> [(Span, String)] -> String
+printTransArrow arrow indent irMap html comments = case arrow of
+  SyncTransArrow _                         -> spanKeyword " -->> "
+  NextTransArrow _                         -> spanKeyword " --> "
+  GuardedSyncTransArrow _ (TransGuard _ g) -> spanKeyword " -[" ++ printExpIn 1 g indent irMap html comments ++ spanKeyword "]->> "
+  GuardedNextTransArrow _ (TransGuard _ g) -> spanKeyword " -[" ++ printExpIn 1 g indent irMap html comments ++ spanKeyword "]-> "
+  where
+    spanKeyword s = while html "<span class=\"tKeyword\">" ++ (if html then concatMap gtEntity s else s) ++ while html "</span>"
+    gtEntity '>' = "&gt;"
+    gtEntity c   = [c]
+
 printTransition :: Transition -> Int -> Map.Map Span [Ir] -> Bool -> [(Span, String)] -> String
 printTransition (TransitionEmpty _) _ _ _ _ = ""
-printTransition (Transition _ (SyncTransArrow _) exp2) indent irMap html comments = (if html then "<span class=\"tKeyword\"> --&gt;&gt; </span>" else " -->> ") ++ printExp exp2 indent irMap html comments
-printTransition (Transition _ (NextTransArrow _) exp2) indent irMap html comments = (if html then "<span class=\"tKeyword\"> --&gt; </span>" else " --> ") ++ printExp exp2 indent irMap html comments
-printTransition (Transition _ (GuardedSyncTransArrow _ (TransGuard _ guardExp)) exp2) indent irMap html comments = while html "<span class=\"tKeyword\">" ++ " -[" ++ while html "</span>" ++ printExpIn 1 guardExp indent irMap html comments ++ (if html then "<span class=\"tKeyword\">]-&gt;&gt; </span>" else "]->> ")  ++ printExp exp2 indent irMap html comments
-printTransition (Transition _ (GuardedNextTransArrow _ (TransGuard _ guardExp)) exp2) indent irMap html comments = while html "<span class=\"tKeyword\">" ++ " -[" ++ while html "</span>" ++ printExpIn 1 guardExp indent irMap html comments ++ (if html then "<span class=\"tKeyword\">]-&gt; </span>" else "]-> ") ++ printExp exp2 indent irMap html comments
+printTransition (Transition _ arrow exp2) indent irMap html comments = printTransArrow arrow indent irMap html comments ++ printExp exp2 indent irMap html comments
 
 -- | The grammar level of the production that builds an expression node: the
 -- @N@ of the @ExpN@ nonterminal in @ParClafer.y@ whose production the
@@ -486,10 +501,7 @@ printExpIn required exp' indent irMap html comments
 -- did before.  (Sigil-Logic/clafer#36)
 printExp :: Exp -> Int -> Map.Map Span [Ir] -> Bool -> [(Span, String)] -> String
 printExp e indent irMap html comments = case e of
-  TransitionExp _ exp1 (SyncTransArrow _) exp2 -> sub 1 exp1 ++ (if html then "<span class=\"tKeyword\"> --&gt;&gt; </span>" else " -->> ") ++ sub 0 exp2
-  TransitionExp _ exp1 (NextTransArrow _) exp2 -> sub 1 exp1 ++ (if html then "<span class=\"tKeyword\"> --&gt; </span>" else " --> ") ++ sub 0 exp2
-  TransitionExp _ exp1 (GuardedSyncTransArrow _ (TransGuard _ guardExp)) exp2 -> sub 1 exp1 ++ while html "<span class=\"tKeyword\">" ++ " -[" ++ while html "</span>" ++ sub 1 guardExp ++ (if html then "<span class=\"tKeyword\">]-&gt;&gt; </span>" else "]->> ")  ++ sub 0 exp2
-  TransitionExp _ exp1 (GuardedNextTransArrow _ (TransGuard _ guardExp)) exp2 -> sub 1 exp1 ++ while html "<span class=\"tKeyword\">" ++ " -[" ++ while html "</span>" ++ sub 1 guardExp ++ (if html then "<span class=\"tKeyword\">]-&gt; </span>" else "]-> ") ++ sub 0 exp2
+  TransitionExp _ exp1 arrow exp2 -> sub 1 exp1 ++ printTransArrow arrow indent irMap html comments ++ sub 0 exp2
   EDeclAllDisj _ decl exp' -> "all disj " ++ printDecl decl indent irMap html comments ++ " | " ++ sub 1 exp'
   EDeclAll _     decl exp' -> "all " ++ printDecl decl indent irMap html comments ++ " | " ++ sub 1 exp'
   EDeclQuantDisj _ quant' decl exp' -> printQuant quant' html ++ "disj" ++ printDecl decl indent irMap html comments ++ " | " ++ sub 1 exp'
