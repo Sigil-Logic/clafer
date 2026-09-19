@@ -304,20 +304,41 @@ resolveTPExp' p@PExp{_inPos, _exp} =
   resolveTExp e@(IReal _) = runListT $ runExceptT $ return (TReal, e)
   resolveTExp e@(IStr _)    = runListT $ runExceptT $ return (TString, e)
 
-  resolveTExp e@IFunExp {_op, _exps = [arg]} =
+  resolveTExp e@IFunExp {_op, _exps = [arg]} = do
+    uidIClaferMap' <- asks iUIDIClaferMap
     runListT $ runExceptT $ do
-      arg' <- lift $ ListT $ resolveTPExp arg
+      arg0 <- lift $ ListT $ resolveTPExp arg
+      -- Sigil-Logic/clafer#47: `sum` and `product` aggregate the value of
+      -- every member of a set of integer clafers, so a clafer-set operand is
+      -- dereferenced as a whole -- `(x ++ y).dref` -- and tried first; the
+      -- plain operand follows so that a reference-less operand keeps its
+      -- error below.  Before, `sum (x ++ y)` was typed from the operands'
+      -- separate dereference alternatives, and the first "integer" one,
+      -- `x ++ y.dref` (a union type, on which 'isTInteger' holds), reached
+      -- both generators, which rendered it literally.
+      arg' <- if _op `elem` [iSumSet, iProdSet] && isTClafer (typeOf arg0)
+                then derefAggregateOperand _op uidIClaferMap' arg0 <++> return arg0
+                else return arg0
       let t = typeOf arg'
       let
           test c =
             unless c $
               throwError $ SemanticErr _inPos ("Function '" ++ _op ++ "' cannot be performed on " ++ _op ++ " '" ++ showType arg' ++ "'")
+          -- a set operator that survived typing only over values: its operands
+          -- share no clafer type (`sum (N -- m)` with unrelated N and m), so the
+          -- clafer-set alternative failed and the one-by-one dereferences won
+          testAggregable =
+            unless (aggregableOperand arg') $ throwError $ SemanticErr _inPos $
+              case arg' of
+                PExp{_exp = IFunExp{_op = setOp}} | isSetOperator arg' ->
+                  "Function '" ++ _op ++ "' cannot be performed on '" ++ setOp ++ "' over values: its operands share no clafer type and were dereferenced one by one; the operand of '" ++ _op ++ "' must be a set of integer clafers, as in " ++ _op ++ " (N " ++ setOp ++ " n1) with n1 : N"
+                _ -> "Function '" ++ _op ++ "' cannot be performed on " ++ _op ++ " '" ++ showType arg' ++ "'"
       let result
             | _op == iNot = test (isTBoolean t) >> return TBoolean
             | _op `elem` ltlUnOps = test (isTBoolean t) >> return TBoolean
             | _op == iCSet = return TInteger
-            | _op == iSumSet = test (isTInteger t) >> return TInteger
-            | _op == iProdSet = test (isTInteger t) >> return TInteger
+            | _op == iSumSet = testAggregable >> return TInteger
+            | _op == iProdSet = testAggregable >> return TInteger
             | _op `elem` [iMin, iMinimum, iMaximum, iMinimize, iMaximize] = test (numeric t) >> return t
             | otherwise = assert False $ fail $ "Unknown op '" ++ _op ++ "'"
       result' <- result
@@ -429,6 +450,68 @@ resolveTPExp' p@PExp{_inPos, _exp} =
                        then throwError $ SemanticErr _inPos "The type of declaration of a quantified expression must not be 'TBoolean'"
                        else return $ d{_body = body'}
   resolveTExp e = fail $ "Unknown iexp: " ++ show e
+
+-- | Dereference an operand of @sum@ / @product@ as a whole
+-- (Sigil-Logic/clafer#47).  A set operator over clafers -- @x ++ y@, @N --
+-- n1@, @(n1 ++ n2) ** N@ -- becomes @(...).dref@ typed by the union of its
+-- leaves' reference maps: the reference owners are kept apart in a 'TUnion'
+-- so each generator can name every reference relation (Alloy renders
+-- @temp.(@c0_x_ref + @c0_y_ref)@; Choco partitions the expression by
+-- owner), and the targets are joined, so a mixed target (integer and
+-- string) is refused by 'aggregableOperand'.  A leaf without a reference
+-- (@sum (A ++ n1)@ with @A@ reference-less) is an error positioned at the
+-- leaf.  Every other clafer-set operand -- a clafer, a navigation, a local
+-- -- is dereferenced by 'addDref' exactly as its own alternatives would be,
+-- so @sum N@, @sum Feature.cost@, and @sum r@ are unchanged.  A dereference
+-- written after a set operator in the source fails name resolution, so the
+-- union map is reachable only from here.
+derefAggregateOperand :: String -> UIDIClaferMap -> PExp -> ExceptT ClaferSErr (ListT TypeAnalysis) PExp
+derefAggregateOperand op' uidIClaferMap' operand
+  | isSetOperator operand =
+      case [ leaf | leaf <- setOperatorLeaves operand, null $ leafMaps leaf ] of
+        leaf : _ -> throwError $ SemanticErr (_inPos leaf) ("Function '" ++ op' ++ "' cannot be performed on a set expression over '" ++ leafName leaf ++ "', which has no reference")
+        []       -> return $ newPExp (IFunExp "." [operand, newPExp (IClaferId "" "dref" False NoBind) `withType` refMap]) `withType` refMap
+  | otherwise = addDref operand
+  where
+  newPExp = PExp Nothing "" $ _inPos operand
+  -- the reference maps along the leaf's hierarchy, as the dref rule above
+  -- collects them (a leaf's own type names the clafer, 'getTClafers' its
+  -- hierarchy, so an inherited reference is found)
+  leafMaps leaf = concatMap (getTMaps uidIClaferMap') $ getTClafers uidIClaferMap' $ typeOf leaf
+  leafName leaf = case typeOf leaf of
+    TClafer (u : _) | Just IClafer{_ident} <- findIClafer uidIClaferMap' u -> _ident
+    _ -> showType leaf
+  refMap = case nub [ m | leaf <- setOperatorLeaves operand, m <- take 1 $ leafMaps leaf ] of
+    [m] -> m
+    ms  -> TMap (TUnion $ map _so ms) (foldr1 (+++) $ map _ta ms)
+
+-- | Whether a typed operand of @sum@ / @product@ denotes a set of integer
+-- clafers (Sigil-Logic/clafer#47): a dereference to integers -- the
+-- operand's own @.dref@, or the one 'derefAggregateOperand' adds -- and not a
+-- set operator whose operands were dereferenced one by one (@x ++ y.dref@,
+-- of a union type; @N.dref -- m.dref@ over unrelated @N@ and @m@, of type
+-- integer), nor a mixed target.
+aggregableOperand :: PExp -> Bool
+aggregableOperand operand
+  | isSetOperator operand = False
+  | otherwise = case typeOf operand of
+      TInteger        -> True
+      TMap _ TInteger -> True
+      _               -> False
+
+isSetOperator :: PExp -> Bool
+isSetOperator PExp{_exp = IFunExp{_op = op', _exps = [_, _]}} = op' `elem` [iUnion, iDifference, iIntersection]
+isSetOperator _ = False
+
+-- | The operands of a nest of set operators that are not set operators themselves.
+setOperatorLeaves :: PExp -> [PExp]
+setOperatorLeaves p@PExp{_exp = IFunExp{_exps = [l, r]}}
+  | isSetOperator p = setOperatorLeaves l ++ setOperatorLeaves r
+setOperatorLeaves p = [p]
+
+isTClafer :: IType -> Bool
+isTClafer TClafer{} = True
+isTClafer _         = False
 
 -- Adds "dref"s at the end, effectively dereferencing Clafers when needed.
 addDref :: PExp -> ExceptT ClaferSErr (ListT TypeAnalysis) PExp

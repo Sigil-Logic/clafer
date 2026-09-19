@@ -268,9 +268,14 @@ unfoldableReferenceTargetMsg node =
 -- the other shapes with the @[bug]@ invariant of @removeright@.  Arithmetic
 -- over a set already denotes the arithmetic over its sum in both backends
 -- (@N - 1@ is @(sum N) - 1@), so the aggregate belongs outside the
--- arithmetic: @sum N - 1@.  A set-operator operand (@sum (x ++ y)@) is a set
--- expression and is not declined here; its rendering is Sigil-Logic/clafer#47,
--- which should revisit this note and the generators' notes when it lands.
+-- arithmetic: @sum N - 1@.  A set operator over clafers (@sum (x ++ y)@,
+-- @sum (N -- n1)@) is a set expression and is not declined: the type
+-- resolver dereferences it as a whole and both generators aggregate over
+-- every member (Sigil-Logic/clafer#47).  A set operator with a dereference
+-- or a number among its operands (@sum (x ++ y.dref)@, @sum (x.dref ++
+-- y.dref)@, @sum (x ++ 5)@, nested or not) is declined here, positioned at
+-- that operand, with the same message and the remedy of writing the set
+-- operator over the clafers.
 --
 -- Like 'rejectUnfoldableReferenceTargets' this runs from
 -- 'Language.Clafer.Intermediate.Resolver.resolveModule' after name
@@ -282,9 +287,9 @@ unfoldableReferenceTargetMsg node =
 -- positioned offender is preferred to one without a span.
 rejectArithmeticAggregateOperands :: IModule -> Resolve ()
 rejectArithmeticAggregateOperands imodule =
-  case sortOn (\(operand, _, _) -> (_inPos operand == noSpan, _inPos operand)) offenders of
-    (operand, op', detail) : _ -> throwError $ SemanticErr (_inPos operand) $ arithmeticAggregateOperandMsg op' detail
-    []                         -> return ()
+  case sortOn (\(offender, _, _, _) -> (_inPos offender == noSpan, _inPos offender)) offenders of
+    (offender, op', detail, remedy) : _ -> throwError $ SemanticErr (_inPos offender) $ arithmeticAggregateOperandMsg op' detail remedy
+    []                                  -> return ()
   where
     -- the outermost expressions of the module (constraints, goals,
     -- reference targets, ...), each walked with the locals in scope
@@ -294,14 +299,16 @@ rejectArithmeticAggregateOperands imodule =
 -- locals in scope with what they range over ('numericDomain'): a quantifier
 -- binds its locals for its body only, and an inner declaration of the same
 -- name shadows an outer one -- in @all i : integer | some i : N | sum i > 0@
--- the operand is the inner, clafer-bound @i@ and is a set.
-offendersIn :: Map.Map String String -> PExp -> [(PExp, String, String)]
+-- the operand is the inner, clafer-bound @i@ and is a set.  Each offender
+-- carries the position to report, the aggregate, why it is not a set, and
+-- the remedy the message ends with.
+offendersIn :: Map.Map String String -> PExp -> [(PExp, String, String, String)]
 offendersIn env pexp = here ++ below
   where
-    here = [ (operand, op', detail)
+    here = [ (offender, op', detail, remedy)
            | IFunExp{_op = op', _exps = [operand]} <- [_exp pexp]
            , op' `elem` [iSumSet, iProdSet]
-           , Just detail <- [numericOperandIn env operand] ]
+           , (offender, detail, remedy) <- aggregateOperandOffenders env op' operand ]
     below = case _exp pexp of
       IDeclPExp{_oDecls = decls, _bpexp = body} ->
         concatMap (offendersIn env . _body) decls ++ offendersIn (foldl bind env decls) body
@@ -309,6 +316,28 @@ offendersIn env pexp = here ++ below
     bind env' IDecl{_decls = locals, _body = domain} = case numericDomain domain of
       Just what -> foldr (`Map.insert` what) env' locals
       Nothing   -> foldr Map.delete env' locals
+
+-- | The offenders within one operand of @sum@ / @product@.  A set operator
+-- (Sigil-Logic/clafer#47) is walked down to its operands: each operand that
+-- is a dereference (@x ++ y.dref@ -- values rather than clafers) or a number
+-- by 'numericOperandIn' (@x ++ 5@) is an offender positioned at itself, with
+-- the remedy of writing the set operator over the clafers; a set operator
+-- over clafers alone has no offender and is dereferenced as a whole by the
+-- type resolver.  Any other operand is an offender when 'numericOperandIn'
+-- says so, with the remedy of applying the arithmetic to the aggregate.
+aggregateOperandOffenders :: Map.Map String String -> String -> PExp -> [(PExp, String, String)]
+aggregateOperandOffenders env op' operand = case _exp operand of
+  IFunExp{_op = setOp, _exps = [l, r]} | setOp `elem` setOperators -> concatMap (setOperandOffenders setOp) [l, r]
+  _ -> [ (operand, detail, "apply the arithmetic to the aggregate instead, as in " ++ op' ++ " N - 1")
+       | Just detail <- [numericOperandIn env operand] ]
+  where
+    setOperators = [iUnion, iDifference, iIntersection]
+    setOperandOffenders setOp leaf = case _exp leaf of
+      IFunExp{_op = inner, _exps = [l, r]} | inner `elem` setOperators -> concatMap (setOperandOffenders inner) [l, r]
+      IFunExp{_op = ".", _exps = [_, PExp{_exp = IClaferId{_sident = "dref"}}]} ->
+        [ (leaf, "within '" ++ setOp ++ "', a dereference yields values rather than clafers", setRemedy setOp) ]
+      _ -> [ (leaf, "within '" ++ setOp ++ "', " ++ detail, setRemedy setOp) | Just detail <- [numericOperandIn env leaf] ]
+    setRemedy setOp = "the operands of '" ++ setOp ++ "' under '" ++ op' ++ "' must themselves be sets of integer clafers, as in " ++ op' ++ " (x " ++ setOp ++ " y)"
 
 -- | What a quantifier's local ranges over when that is numbers rather than
 -- clafers: a primitive type (@all i : integer@) or a dereference (@all i :
@@ -347,10 +376,11 @@ numericOperandIn _ PExp{_exp = IReal _}   = Just "a real literal is a real"
 numericOperandIn _ _ = Nothing
 
 -- | The message for a rejected aggregate operand: what the operand is and
--- why it is not a set, then the rule with the shape to use instead.
-arithmeticAggregateOperandMsg :: String -> String -> String
-arithmeticAggregateOperandMsg op' detail =
-  "Unsupported operand of '" ++ op' ++ "': " ++ detail ++ ", not a set.  The operand of '" ++ op' ++ "' must be a set of integer clafers, as in " ++ op' ++ " N or " ++ op' ++ " N.dref; apply the arithmetic to the aggregate instead, as in " ++ op' ++ " N - 1"
+-- why it is not a set, then the rule and the remedy with the shape to use
+-- instead.
+arithmeticAggregateOperandMsg :: String -> String -> String -> String
+arithmeticAggregateOperandMsg op' detail remedy =
+  "Unsupported operand of '" ++ op' ++ "': " ++ detail ++ ", not a set.  The operand of '" ++ op' ++ "' must be a set of integer clafers, as in " ++ op' ++ " N or " ++ op' ++ " N.dref; " ++ remedy
 
 
 resolveOElement :: SEnv -> IElement -> Resolve IElement

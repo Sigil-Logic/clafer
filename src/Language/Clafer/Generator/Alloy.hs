@@ -454,11 +454,17 @@ genPExp'    genEnv    resPath     (PExp iType' pid' pos exp') = case exp' of
   IClaferId _ "integer" _ _ -> CString "Int"
   IClaferId _ "int" _ _ -> CString "Int"
   IClaferId _ "string" _ _ -> CString "Int"
-  IClaferId _ "dref" _ _ -> CString $ "@"  ++ getTClaferUID iType' ++ "_ref"
+  IClaferId _ "dref" _ _ -> CString $ genRefRelations iType'
     where
-      getTClaferUID (Just TMap{_so = TClafer{_hi = [u]}}) = u
-      getTClaferUID (Just TMap{_so = TClafer{_hi = (u:_)}}) = u
-      getTClaferUID t = error $ "[bug] Alloy.genPExp'.getTClaferUID: unknown type: " ++ show t
+      -- Sigil-Logic/clafer#47: a dereference typed over several reference
+      -- owners -- `(x ++ y).dref`, built by the aggregate rule of the type
+      -- resolver, whose TMap keeps the owners apart in a TUnion -- is the
+      -- union of their reference relations, `(@c0_x_ref + @c0_y_ref)`.
+      genRefRelations (Just TMap{_so = TUnion owners}) = "(" ++ intercalate " + " (map refRelation owners) ++ ")"
+      genRefRelations (Just TMap{_so = owner})        = refRelation owner
+      genRefRelations t = error $ "[bug] Alloy.genPExp'.genRefRelations: unknown type: " ++ show t
+      refRelation TClafer{_hi = (u:_)} = "@" ++ u ++ "_ref"
+      refRelation t = error $ "[bug] Alloy.genPExp'.refRelation: unknown reference owner: " ++ show t
   IClaferId _ sid istop _ -> CString $
       if head sid == '~'
         then sid
@@ -507,13 +513,18 @@ genIFunExp    pid'      genEnv    resPath     (IFunExp "min" [exp']) = Concat (I
 genIFunExp    pid'      genEnv    resPath     (IFunExp "max" [exp']) = Concat (IrPExp pid') $ (CString "max[") : (genPExp' genEnv resPath exp') : [CString "]"]
 -- ignore navigation from the root
 genIFunExp    _         genEnv    resPath     (IFunExp "."  [PExp{_exp=IClaferId{_sident="root"}}, exp2]) = genPExp' genEnv resPath exp2
--- `removeright` / `getRight` assume the `sum` operand is a navigation path.
+-- `removeright` / `getRight` split the `sum` operand into the set and its
+-- trailing `dref`: `N.dref` into `c0_N` and `@c0_N_ref`, and a set operator
+-- dereferenced as a whole by the type resolver, `(x ++ y).dref`, into
+-- `(c0_x + c0_y)` and the union of the members' reference relations
+-- `(@c0_x_ref + @c0_y_ref)` (Sigil-Logic/clafer#47; before, the resolver
+-- dereferenced the last operand only and `temp.@c0_y_ref` was rendered).
 -- The resolver declines the integer-valued operand shapes it recognizes
 -- before generation -- arithmetic, `#`, nested `sum`/`product`/`min`/`max`,
 -- an if-then-else with a numeric branch, numeric literals, a primitive type,
--- a local declared over a primitive type or a dereference
--- (ResolverInheritance.rejectArithmeticAggregateOperands, Sigil-Logic/clafer#46);
--- a set-operator operand still reaches here and is mis-rendered (#47).
+-- a local declared over a primitive type or a dereference, and any of these
+-- or a dereference inside a set operator
+-- (ResolverInheritance.rejectArithmeticAggregateOperands, Sigil-Logic/clafer#46, #47).
 genIFunExp    pid'      genEnv    resPath     (IFunExp op' exps')
   | op' == iSumSet = genIFunExp pid' genEnv resPath (IFunExp iSumSet' [(removeright (head exps')), (getRight $ head exps')])
   | op' == iSumSet'  = Concat (IrPExp pid') $ intl exps'' (map CString $ genOp iSumSet)
