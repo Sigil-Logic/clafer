@@ -313,7 +313,7 @@ offendersIn env pexp = here ++ below
       IDeclPExp{_oDecls = decls, _bpexp = body} ->
         concatMap (offendersIn env . _body) decls ++ offendersIn (foldl bind env decls) body
       _ -> concatMap (offendersIn env) (toListOf uniplate pexp)
-    bind env' IDecl{_decls = locals, _body = domain} = case numericDomain domain of
+    bind env' IDecl{_decls = locals, _body = domain} = case numericDomain env' domain of
       Just what -> foldr (`Map.insert` what) env' locals
       Nothing   -> foldr Map.delete env' locals
 
@@ -340,22 +340,23 @@ aggregateOperandOffenders env op' operand = case _exp operand of
     setRemedy setOp = "the operands of '" ++ setOp ++ "' under '" ++ op' ++ "' must themselves be sets of integer clafers, as in " ++ op' ++ " (x " ++ setOp ++ " y)"
 
 -- | What a quantifier's local ranges over when that is numbers rather than
--- clafers: a primitive type (@all i : integer@) or a dereference (@all i :
--- N.dref@, the values of @N@).  'Nothing' for a set of clafers.
-numericDomain :: PExp -> Maybe String
-numericDomain PExp{_exp = IClaferId{_sident = prim}}
-  | prim `elem` primitiveTypes = Just $ "the primitive type '" ++ prim ++ "'"
-numericDomain PExp{_exp = IFunExp{_op = ".", _exps = [_, PExp{_exp = IClaferId{_sident = "dref"}}]}} =
+-- clafers: a primitive type (@all i : integer@), a dereference (@all i :
+-- N.dref@, the values of @N@), an outer local already bound over values
+-- (@all i : N.dref | all k : i@), or a set operator with such an operand
+-- (@all i : (x.dref ++ y.dref)@, reachable with @--skip-resolver@; before,
+-- such a local reached the Alloy generator and aborted it -- HOARDE Codex,
+-- PR #52 Cycles 1 and 2).  'Nothing' for a set of clafers.
+numericDomain :: Map.Map String String -> PExp -> Maybe String
+numericDomain env PExp{_exp = IClaferId{_sident = name}}
+  | Just what <- Map.lookup name env = Just what
+  | name `elem` primitiveTypes = Just $ "the primitive type '" ++ name ++ "'"
+numericDomain _ PExp{_exp = IFunExp{_op = ".", _exps = [_, PExp{_exp = IClaferId{_sident = "dref"}}]}} =
   Just "a dereference, i.e. values rather than clafers"
--- a set operator with a numeric operand (@all i : (x.dref ++ y.dref)@,
--- reachable with @--skip-resolver@) ranges over values too; before, such a
--- local reached the Alloy generator and aborted it (HOARDE Codex, PR #52
--- Cycle 1)
-numericDomain PExp{_exp = IFunExp{_op = op', _exps = [l, r]}}
+numericDomain env PExp{_exp = IFunExp{_op = op', _exps = [l, r]}}
   | op' `elem` [iUnion, iDifference, iIntersection]
-  , Just what <- numericDomain l `mplus` numericDomain r
+  , Just what <- numericDomain env l `mplus` numericDomain env r
   = Just $ "a set operator over " ++ what
-numericDomain _ = Nothing
+numericDomain _ _ = Nothing
 
 -- | Why an operand of @sum@ / @product@ is a number rather than a set, if
 -- its shape -- or, for a local, its declaration in scope -- says so: the

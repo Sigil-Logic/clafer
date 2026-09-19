@@ -444,10 +444,23 @@ genCModule (imodule@IModule{_mDecls}, genv') scopes  otherTokens' =
             setExp = distributeDref setExp0
             aggregateOf part = aggr ++ "(" ++ genConstraintPExp part ++ ")"
             leaves = setOperatorLeaves setExp
-            owners = nub $ map refOwner leaves
+            owners = nub $ concatMap leafOwners leaves
             ownerParts
-                | isSetOperator setExp && all isJust owners = mapMaybe (\owner -> restrictTo owner setExp) owners
+                | all (not . null . leafOwners) leaves = mapMaybe (\owner -> restrictTo (Just owner) setExp) owners
                 | otherwise = []
+            -- the reference owners of a leaf: one for a clafer, a
+            -- navigation, or a dereferenced leaf; one per member for a
+            -- local bound to a set expression over clafers with different
+            -- references (`all n : (x ++ y)`, reachable with
+            -- --skip-resolver), whose atoms the restriction below splits
+            -- per owner (HOARDE Codex and Gemini, PR #52 Cycles 1 and 2)
+            leafOwners :: PExp -> [UID]
+            leafOwners leaf@PExp{_iType = Just TClafer{_hi = hi@(u : _)}}
+                | isDeref leaf || hi == superChain u = maybeToList $ refOwner leaf
+                | otherwise = nub $ mapMaybe nearestOwner hi
+            leafOwners leaf = maybeToList $ refOwner leaf
+            isDeref PExp{_exp = IFunExp{_op = ".", _exps = [_, PExp{_exp = IClaferId{_sident = "dref"}}]}} = True
+            isDeref _ = False
             -- A dereference of a set expression -- `(r1 ++ r2).dref`, a
             -- reference chain under a set operator, `r1 -> N` with `N ->>
             -- integer` -- is pushed to the leaves, `r1.dref ++ r2.dref`:
@@ -491,7 +504,12 @@ genCModule (imodule@IModule{_mDecls}, genv') scopes  otherTokens' =
                         (Just l', Nothing) -> if op' == iIntersection then Nothing else Just l'
                         (Nothing, Just r') -> if op' == iUnion then Just r' else Nothing
                         (Just l', Just r') -> Just p{_exp = e{_exps = [l', r']}}
-            restrictTo owner leaf = if refOwner leaf == owner then Just leaf else Nothing
+            restrictTo (Just owner) leaf
+                | leafOwners leaf == [owner] = Just leaf
+                | owner `elem` leafOwners leaf =
+                    -- a multi-reference local: its atoms of this owner, `n ** owner`
+                    Just leaf{_exp = IFunExp iIntersection [leaf, PExp (Just $ TClafer [owner]) "" (_inPos leaf) (IClaferId "" owner True (GlobalBind owner))]}
+            restrictTo _ _ = Nothing
 
     isSetOperator :: PExp -> Bool
     isSetOperator PExp{_exp = IFunExp{_op = op', _exps = [_, _]}} = op' `elem` [iUnion, iDifference, iIntersection]

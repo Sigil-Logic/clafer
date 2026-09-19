@@ -462,28 +462,65 @@ resolveTPExp' p@PExp{_inPos, _exp} =
 -- set of clafers -- a reference chain, @sum (r1 ++ r2)@ with @r1 -> N@ and
 -- @N ->> integer@ -- further hops follow, each again by the union of the
 -- target members' nearest references, as 'addDref' follows a chain for a
--- single operand (HOARDE Codex, PR #52 Cycle 1).  A leaf without a
--- reference (@sum (A ++ n1)@ with @A@ reference-less) and a leaf typed over
+-- single operand (HOARDE Codex, PR #52 Cycle 1).  A leaf typed over
 -- clafers with different references (a local bound to @x ++ y@, reachable
--- with @--skip-resolver@: chocosolver cannot aggregate it even split per
--- reference, and Alloy would need a union of relations per atom) are
--- errors positioned at the leaf.  Every other clafer-set operand -- a
--- clafer, a navigation, a local -- is dereferenced by 'addDref' exactly as
--- its own alternatives would be, so @sum N@, @sum Feature.cost@, and @sum
--- r@ are unchanged.  A dereference written after a set operator in the
+-- with @--skip-resolver@) contributes every one of them: Alloy joins the
+-- union of the relations, Choco splits the leaf per reference (@n ** x@,
+-- @n ** y@; HOARDE Codex and Gemini, PR #52 Cycles 1 and 2).  A leaf
+-- without a reference (@sum (A ++ n1)@ with @A@ reference-less) is an
+-- error positioned at the leaf.  Every other clafer-set operand -- a
+-- clafer, a navigation, a local -- takes the same hops, which coincide
+-- with its own 'addDref' alternatives, so @sum N@, @sum Feature.cost@, and
+-- @sum r@ are unchanged.  A dereference written after a set operator in the
 -- source fails name resolution, so the union map is reachable only from
 -- here.
 derefAggregateOperand :: String -> UIDIClaferMap -> PExp -> ExceptT ClaferSErr (ListT TypeAnalysis) PExp
 derefAggregateOperand op' uidIClaferMap' operand
   | isSetOperator operand =
-      case ([ leaf | leaf <- leaves, referenceLess (typeOf leaf) ], [ leaf | leaf <- leaves, severalReferences (typeOf leaf) ]) of
-        (leaf : _, _) -> throwError $ SemanticErr (_inPos leaf) ("Function '" ++ op' ++ "' cannot be performed on a set expression over '" ++ leafName leaf ++ "', which has no reference")
-        (_, leaf : _) -> throwError $ SemanticErr (_inPos leaf) ("Function '" ++ op' ++ "' cannot be performed on a set expression over '" ++ leafName leaf ++ "', which ranges over clafers with different references; the operand of '" ++ op' ++ "' must be a set of clafers sharing one reference, or a set operator over such sets")
-        _             -> hops operand
-  | otherwise = addDref operand
+      case [ leaf | leaf <- leaves, referenceLess (typeOf leaf) ] of
+        leaf : _ -> throwError $ SemanticErr (_inPos leaf) ("Function '" ++ op' ++ "' cannot be performed on a set expression over '" ++ leafName leaf ++ "', which has no reference")
+        []       -> case mapM normalizeLeaf leaves of
+          Left (leaf, culprit) -> throwError $ SemanticErr (_inPos leaf) ("Function '" ++ op' ++ "' cannot be performed on a set expression over '" ++ leafName leaf ++ "', whose reference chain reaches '" ++ culprit ++ "', which has no reference")
+          Right leaves'        -> hops $ rebuild operand leaves'
+  -- a single operand takes the same hops: for a clafer, a navigation, or a
+  -- local over one clafer they coincide with 'addDref' (the nearest
+  -- reference along the hierarchy at each hop); for a local bound to a set
+  -- expression over clafers with different references (`all n : (x ++ y) |
+  -- sum n`, --skip-resolver) they name every reference where 'addDref'
+  -- named the first (HOARDE Junie, PR #52 Cycle 2)
+  | otherwise = hops operand
   where
   leaves = setOperatorLeaves operand
   newPExp = PExp Nothing "" $ _inPos operand
+  -- Each leaf follows its own reference chain first (HOARDE Codex, PR #52
+  -- Cycle 2): a leaf whose nearest references point to clafers is
+  -- dereferenced, typed by the target, until its nearest references point
+  -- to values, so leaves of different depths (`r1 ++ n1` with `r1 -> N`)
+  -- meet as sets of clafers with values and take the final hop together;
+  -- a chain that reaches a clafer without a reference (`r1 -> A`) is an
+  -- error at the leaf instead of a member that silently contributes
+  -- nothing.  References to clafers and to values at one level of a leaf
+  -- are left as they are and refused by 'aggregableOperand' after the hop.
+  normalizeLeaf leaf = go leaf
+    where
+    go p = case mapsOf (targetOf $ typeOf p) of
+      []                             -> Left (leaf, typeName $ targetOf $ typeOf p)
+      ms | all (isTClafer . _ta) ms -> go $ PExp (Just $ _ta refMap) "" (_inPos leaf) (IFunExp "." [p, PExp (Just refMap) "" (_inPos leaf) (IClaferId "" "dref" False NoBind)])
+         | otherwise                -> Right p
+        where refMap = unionMap ms
+  typeName (TClafer (u : _)) | Just IClafer{_ident} <- findIClafer uidIClaferMap' u = _ident
+  typeName t = show t
+  -- the set operator with its leaves replaced in order, each operator
+  -- node re-typed by the union of its operands (a superset for `--` and
+  -- `**`, which only widens the relations the final hop names)
+  rebuild p ls = fst $ go p ls
+    where
+    go q@PExp{_exp = e@IFunExp{_exps = [l, r]}} ls0
+      | isSetOperator q = let (l', ls1) = go l ls0
+                              (r', ls2) = go r ls1
+                          in (q{_exp = e{_exps = [l', r']}, _iType = Just $ typeOf l' +++ typeOf r'}, ls2)
+    go _ (x : xs) = (x, xs)
+    go q []       = (q, [])
   -- one dereference hop by the union of the nearest references of the
   -- clafers the type names, then further hops while the target is a set
   -- of clafers with references
@@ -511,7 +548,6 @@ derefAggregateOperand op' uidIClaferMap' operand
     | getTClaferByUID uidIClaferMap' u == Just t = null $ getTMaps uidIClaferMap' t
     | otherwise = or [ null $ getTMaps uidIClaferMap' member | u' <- hi, Just member <- [getTClaferByUID uidIClaferMap' u'] ]
   referenceLess t = null $ concatMap (getTMaps uidIClaferMap') $ getTClafers uidIClaferMap' t
-  severalReferences t = length (mapsOf t) > 1
   leafName leaf = case _exp leaf of
     IClaferId{_sident} -> maybe _sident _ident $ findIClafer uidIClaferMap' _sident
     _ -> case typeOf leaf of
