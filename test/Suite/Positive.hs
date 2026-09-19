@@ -1249,6 +1249,63 @@ case_si47_set_operators_over_unrelated_or_reference_less_clafers_are_refused = d
     si47_assertRefused "difference of unrelated clafers under --skip-resolver" defaultClaferArgs{skip_resolver = True} (si47_model "[ x = sum (N -- m) ]") (Pos 6 7)
         "Function 'sum' cannot be performed on '--' over values"
 
+-- HOARDE Codex, PR #52 Cycle 1: a reference chain under a set operator
+-- (`sum (r1 ++ r2)` with `r1 -> N`, `N ->> integer`) follows the chain as
+-- `sum r1` does -- Alloy joins the union of the reference relations and then
+-- the target's, Choco pushes the dereference to the leaves (`union(joinRef,
+-- joinRef)`: chocosolver rejects `joinRef` on a union of clafers with
+-- different references) -- with the set semantics of the referenced atoms
+-- (two references to the same atom count it once) and one Choco part per
+-- target reference.
+case_si47_reference_chains_under_a_set_operator_follow_the_chain :: Assertion
+case_si47_reference_chains_under_a_set_operator_follow_the_chain = do
+    let chain = "abstract N ->> integer\nn1 : N = 3\nn2 : N = 2\nr1 -> N = n1\nr2 -> N = n2\ntotal -> integer\n[ total = sum (r1 ++ r2) ]\n"
+    si29_assertContains "union of chains (Alloy)" "fact { (c0_total.@c0_total_ref) = (sum temp : ((c0_r1 + c0_r2).(@c0_r1_ref + @c0_r2_ref)) | temp.@c0_N_ref) }" (si31_alloy chain)
+    si29_assertContains "union of chains (Choco)" "Constraint(equal(joinRef(global(c0_total)), sum(union(joinRef(global(c0_r1)), joinRef(global(c0_r2))))));" (si31_choco chain)
+    let targets = "abstract N ->> integer\nabstract M ->> integer\nn1 : N = 3\nm1 : M = 4\nr1 -> N = n1\nr2 -> M = m1\ntotal -> integer\n[ total = sum (r1 ++ r2) ]\n"
+    si29_assertContains "chains to different targets (Alloy)" "fact { (c0_total.@c0_total_ref) = (sum temp : ((c0_r1 + c0_r2).(@c0_r1_ref + @c0_r2_ref)) | temp.(@c0_N_ref + @c0_M_ref)) }" (si31_alloy targets)
+    si29_assertContains "chains to different targets (Choco)" "Constraint(equal(joinRef(global(c0_total)), add(sum(joinRef(global(c0_r1))), sum(joinRef(global(c0_r2))))));" (si31_choco targets)
+    let nested = "abstract N ->> integer\nn1 : N = 3\nn2 : N = 2\nr1 -> N = n1\nr2 -> N = n2\nrest -> integer\n[ rest = sum ((r1 ++ r2) -- r2) ]\nprod -> integer\n[ prod = product (r1 ++ r2) ]\n"
+        nestedChoco = si31_choco nested
+    si29_assertContains "difference of chains (Choco)" "Constraint(equal(joinRef(global(c0_rest)), sum(diff(union(joinRef(global(c0_r1)), joinRef(global(c0_r2))), joinRef(global(c0_r2))))));" nestedChoco
+    si29_assertContains "product of chains (Choco)" "Constraint(equal(joinRef(global(c0_prod)), product(union(joinRef(global(c0_r1)), joinRef(global(c0_r2))))));" nestedChoco
+
+-- Shapes reachable only without name resolution (a quantifier declared over
+-- a set expression fails name resolution), HOARDE Codex, PR #52 Cycle 1: a
+-- local bound to clafers with different references is refused at the local
+-- (chocosolver cannot aggregate it even split per reference, and the union
+-- of relations per atom that Alloy would need is not what the operand says);
+-- a local declared over a set operator over dereferences ranges over values
+-- and is declined by the #46 pre-pass instead of aborting the Alloy
+-- generator.
+case_si47_locals_over_set_expressions_are_refused_or_declined_without_the_resolver :: Assertion
+case_si47_locals_over_set_expressions_are_refused_or_declined_without_the_resolver = do
+    si47_assertRefused "a local bound to clafers with different references" defaultClaferArgs{skip_resolver = True}
+        "x -> integer\ny -> integer\nm -> integer\n[ all n : (x ++ y) | sum (n ++ m) > 0 ]\n" (Pos 4 27)
+        "Function 'sum' cannot be performed on a set expression over 'n', which ranges over clafers with different references; the operand of 'sum' must be a set of clafers sharing one reference, or a set operator over such sets"
+    -- the twin: a local over one clafer keeps every reference (a local over
+    -- clafers sharing one reference needs inheritance, and a model with
+    -- inheritance cannot skip name resolution)
+    si29_assertContains "a local bound to one clafer is accepted (Alloy)" "fact { all  n : x | (sum temp : (n + m) | temp.(@x_ref + @m_ref)) > 0 }"
+        (outputCode $ fromJust $ Map.lookup Alloy $ fromRight $ compileOneFragment defaultClaferArgs{mode = [Alloy, Choco], skip_resolver = True} "x -> integer\ny -> integer\nm -> integer\n[ all n : x | sum (n ++ m) > 0 ]\n")
+    si46_assertRejected "a local declared over a set operator over dereferences" defaultClaferArgs{skip_resolver = True}
+        "x -> integer\ny -> integer\n[ all i : (x.dref ++ y.dref) | sum i > 0 ]\n" (Pos 3 36)
+        (si46_msg "sum" "the local 'i' is declared over a set operator over a dereference, i.e. values rather than clafers")
+
+-- `--flatten-inheritance` loses every reference inherited from an abstract
+-- before type resolution (Sigil-Logic/clafer#53, pre-existing): the
+-- single-operand and the set-operator forms fail alike, so the aggregate
+-- rule does not widen what the flag supports (HOARDE Codex, PR #52 Cycle 1
+-- observed the set-operator form; on master it compiled only through the
+-- last-operand dereference this fix removes).
+case_si47_flatten_inheritance_refuses_inherited_references_alike :: Assertion
+case_si47_flatten_inheritance_refuses_inherited_references_alike = do
+    let flat = defaultClaferArgs{flatten_inheritance = True}
+    si47_assertRefused "single operand under --flatten-inheritance" flat "abstract N ->> integer\nabstract Sub : N\ns1 : Sub\ns2 : Sub\ntotal -> integer\n[ total = sum s1 ]\n" (Pos 6 11)
+        "Function 'sum' cannot be performed on sum '"
+    si47_assertRefused "set operator under --flatten-inheritance" flat "abstract N ->> integer\nabstract Sub : N\ns1 : Sub\ns2 : Sub\nm -> integer\ntotal -> integer\n[ total = sum (s1 ++ m) ]\n" (Pos 7 16)
+        "Function 'sum' cannot be performed on a set expression over 's1', which has no reference"
+
 -- The refused shapes fail in the type resolver, whose message is asserted by
 -- prefix (a full type shows in the mixed-target message).
 si47_assertRefused :: String -> ClaferArgs -> String -> Pos -> String -> Assertion

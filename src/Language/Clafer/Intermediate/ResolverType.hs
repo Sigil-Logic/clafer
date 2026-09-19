@@ -454,36 +454,69 @@ resolveTPExp' p@PExp{_inPos, _exp} =
 -- | Dereference an operand of @sum@ / @product@ as a whole
 -- (Sigil-Logic/clafer#47).  A set operator over clafers -- @x ++ y@, @N --
 -- n1@, @(n1 ++ n2) ** N@ -- becomes @(...).dref@ typed by the union of its
--- leaves' reference maps: the reference owners are kept apart in a 'TUnion'
--- so each generator can name every reference relation (Alloy renders
--- @temp.(@c0_x_ref + @c0_y_ref)@; Choco partitions the expression by
--- owner), and the targets are joined, so a mixed target (integer and
--- string) is refused by 'aggregableOperand'.  A leaf without a reference
--- (@sum (A ++ n1)@ with @A@ reference-less) is an error positioned at the
--- leaf.  Every other clafer-set operand -- a clafer, a navigation, a local
--- -- is dereferenced by 'addDref' exactly as its own alternatives would be,
--- so @sum N@, @sum Feature.cost@, and @sum r@ are unchanged.  A dereference
--- written after a set operator in the source fails name resolution, so the
--- union map is reachable only from here.
+-- members' nearest reference maps: the reference owners are kept apart in a
+-- 'TUnion' so each generator can name every reference relation (Alloy
+-- renders @temp.(@c0_x_ref + @c0_y_ref)@; Choco partitions the expression
+-- by owner), and the targets are joined, so a mixed target (integer and
+-- string) is refused by 'aggregableOperand'.  While the target is itself a
+-- set of clafers -- a reference chain, @sum (r1 ++ r2)@ with @r1 -> N@ and
+-- @N ->> integer@ -- further hops follow, each again by the union of the
+-- target members' nearest references, as 'addDref' follows a chain for a
+-- single operand (HOARDE Codex, PR #52 Cycle 1).  A leaf without a
+-- reference (@sum (A ++ n1)@ with @A@ reference-less) and a leaf typed over
+-- clafers with different references (a local bound to @x ++ y@, reachable
+-- with @--skip-resolver@: chocosolver cannot aggregate it even split per
+-- reference, and Alloy would need a union of relations per atom) are
+-- errors positioned at the leaf.  Every other clafer-set operand -- a
+-- clafer, a navigation, a local -- is dereferenced by 'addDref' exactly as
+-- its own alternatives would be, so @sum N@, @sum Feature.cost@, and @sum
+-- r@ are unchanged.  A dereference written after a set operator in the
+-- source fails name resolution, so the union map is reachable only from
+-- here.
 derefAggregateOperand :: String -> UIDIClaferMap -> PExp -> ExceptT ClaferSErr (ListT TypeAnalysis) PExp
 derefAggregateOperand op' uidIClaferMap' operand
   | isSetOperator operand =
-      case [ leaf | leaf <- setOperatorLeaves operand, null $ leafMaps leaf ] of
-        leaf : _ -> throwError $ SemanticErr (_inPos leaf) ("Function '" ++ op' ++ "' cannot be performed on a set expression over '" ++ leafName leaf ++ "', which has no reference")
-        []       -> return $ newPExp (IFunExp "." [operand, newPExp (IClaferId "" "dref" False NoBind) `withType` refMap]) `withType` refMap
+      case ([ leaf | leaf <- leaves, referenceLess (typeOf leaf) ], [ leaf | leaf <- leaves, severalReferences (typeOf leaf) ]) of
+        (leaf : _, _) -> throwError $ SemanticErr (_inPos leaf) ("Function '" ++ op' ++ "' cannot be performed on a set expression over '" ++ leafName leaf ++ "', which has no reference")
+        (_, leaf : _) -> throwError $ SemanticErr (_inPos leaf) ("Function '" ++ op' ++ "' cannot be performed on a set expression over '" ++ leafName leaf ++ "', which ranges over clafers with different references; the operand of '" ++ op' ++ "' must be a set of clafers sharing one reference, or a set operator over such sets")
+        _             -> hops operand
   | otherwise = addDref operand
   where
+  leaves = setOperatorLeaves operand
   newPExp = PExp Nothing "" $ _inPos operand
-  -- the reference maps along the leaf's hierarchy, as the dref rule above
-  -- collects them (a leaf's own type names the clafer, 'getTClafers' its
-  -- hierarchy, so an inherited reference is found)
-  leafMaps leaf = concatMap (getTMaps uidIClaferMap') $ getTClafers uidIClaferMap' $ typeOf leaf
-  leafName leaf = case typeOf leaf of
-    TClafer (u : _) | Just IClafer{_ident} <- findIClafer uidIClaferMap' u -> _ident
-    _ -> showType leaf
-  refMap = case nub [ m | leaf <- setOperatorLeaves operand, m <- take 1 $ leafMaps leaf ] of
-    [m] -> m
-    ms  -> TMap (TUnion $ map _so ms) (foldr1 (+++) $ map _ta ms)
+  -- one dereference hop by the union of the nearest references of the
+  -- clafers the type names, then further hops while the target is a set
+  -- of clafers with references
+  hops pexp' = case mapsOf (targetOf $ typeOf pexp') of
+    [] -> lift mzero
+    ms -> let refMap = unionMap ms
+              next = newPExp (IFunExp "." [pexp', newPExp (IClaferId "" "dref" False NoBind) `withType` refMap]) `withType` refMap
+          in return next <++> (case _ta refMap of
+                                 TClafer{} -> hops next
+                                 _         -> lift mzero)
+  targetOf (TMap _ ta) = ta
+  targetOf t           = t
+  unionMap [m] = m
+  unionMap ms  = TMap (TUnion $ map _so ms) (foldr1 (+++) $ map _ta ms)
+  -- the nearest reference map of each clafer a type names: for one clafer
+  -- (a type that is its own hierarchy) the first along the hierarchy, as
+  -- 'addDref' finds it; for several (a set operator's union type, a union
+  -- of reference targets, a local bound to a set expression) the first
+  -- along each member's hierarchy
+  mapsOf t@(TClafer hi@(u : _))
+    | getTClaferByUID uidIClaferMap' u == Just t = take 1 $ getTMaps uidIClaferMap' t
+    | otherwise = nub $ concat [ take 1 $ getTMaps uidIClaferMap' member | u' <- hi, Just member <- [getTClaferByUID uidIClaferMap' u'] ]
+  mapsOf t = take 1 $ concatMap (getTMaps uidIClaferMap') $ getTClafers uidIClaferMap' t
+  referenceLess t@(TClafer hi@(u : _))
+    | getTClaferByUID uidIClaferMap' u == Just t = null $ getTMaps uidIClaferMap' t
+    | otherwise = or [ null $ getTMaps uidIClaferMap' member | u' <- hi, Just member <- [getTClaferByUID uidIClaferMap' u'] ]
+  referenceLess t = null $ concatMap (getTMaps uidIClaferMap') $ getTClafers uidIClaferMap' t
+  severalReferences t = length (mapsOf t) > 1
+  leafName leaf = case _exp leaf of
+    IClaferId{_sident} -> maybe _sident _ident $ findIClafer uidIClaferMap' _sident
+    _ -> case typeOf leaf of
+      TClafer (u : _) | Just IClafer{_ident} <- findIClafer uidIClaferMap' u -> _ident
+      _ -> showType leaf
 
 -- | Whether a typed operand of @sum@ / @product@ denotes a set of integer
 -- clafers (Sigil-Logic/clafer#47): a dereference to integers -- the

@@ -436,23 +436,51 @@ genCModule (imodule@IModule{_mDecls}, genv') scopes  otherTokens' =
     -- the expression belongs to exactly one part.  One owner emits the
     -- expression unchanged, as does an operand that is not a set operator.
     genAggregate :: String -> String -> PExp -> String
-    genAggregate aggr combine setExp =
+    genAggregate aggr combine setExp0 =
         case ownerParts of
             ownerParts'@(_ : _ : _) -> foldr1 (\part rest -> combine ++ "(" ++ part ++ ", " ++ rest ++ ")") (map aggregateOf ownerParts')
             _                 -> aggregateOf setExp
         where
+            setExp = distributeDref setExp0
             aggregateOf part = aggr ++ "(" ++ genConstraintPExp part ++ ")"
             leaves = setOperatorLeaves setExp
             owners = nub $ map refOwner leaves
             ownerParts
                 | isSetOperator setExp && all isJust owners = mapMaybe (\owner -> restrictTo owner setExp) owners
                 | otherwise = []
+            -- A dereference of a set expression -- `(r1 ++ r2).dref`, a
+            -- reference chain under a set operator, `r1 -> N` with `N ->>
+            -- integer` -- is pushed to the leaves, `r1.dref ++ r2.dref`:
+            -- chocosolver rejects `joinRef` on a union of clafers with
+            -- different references (`Ambiguous join`) and accepts the union
+            -- of the dereferences, which keeps the set semantics Alloy has
+            -- (`(c0_r1 + c0_r2).(@c0_r1_ref + @c0_r2_ref)`); the leaves are
+            -- then partitioned by the owner of the reference target (HOARDE
+            -- Codex, PR #52 Cycle 1).
+            distributeDref :: PExp -> PExp
+            distributeDref p@PExp{_exp = e@IFunExp{_op = ".", _exps = [inner, d@PExp{_exp = IClaferId{_sident = "dref"}}]}} =
+                case distributeDref inner of
+                    inner' | isSetOperator inner' -> mapLeaves (\leaf -> leaf{_exp = IFunExp "." [leaf, d]}) inner'
+                           | otherwise            -> p{_exp = e{_exps = [inner', d]}}
+            distributeDref p = p
+            mapLeaves f p@PExp{_exp = e@IFunExp{_exps = [l, r]}}
+                | isSetOperator p = p{_exp = e{_exps = [mapLeaves f l, mapLeaves f r]}}
+            mapLeaves f leaf = f leaf
             -- the reference owner of a leaf: the nearest clafer along the
-            -- super chain of the leaf's clafer that declares a reference
+            -- super chain of the leaf's clafer that declares a reference;
+            -- for a dereferenced leaf, the owner of the clafers its
+            -- reference points to
             refOwner :: PExp -> Maybe UID
-            refOwner PExp{_iType = Just TClafer{_hi = u : _}} =
-                listToMaybe [ o | o <- superChain u, Just IClafer{_reference = Just _} <- [findIClafer uidIClaferMap' o] ]
+            refOwner PExp{_exp = IFunExp{_op = ".", _exps = [inner, PExp{_exp = IClaferId{_sident = "dref"}}]}} =
+                refOwner inner >>= referenceTargetOwner
+            refOwner PExp{_iType = Just TClafer{_hi = u : _}} = nearestOwner u
             refOwner _ = Nothing
+            nearestOwner :: UID -> Maybe UID
+            nearestOwner u = listToMaybe [ o | o <- superChain u, Just IClafer{_reference = Just _} <- [findIClafer uidIClaferMap' o] ]
+            referenceTargetOwner :: UID -> Maybe UID
+            referenceTargetOwner o = case findIClafer uidIClaferMap' o >>= _reference >>= (_iType . _ref) of
+                Just TClafer{_hi = t : _} -> nearestOwner t
+                _                         -> Nothing
             -- the set expression restricted to the leaves of one owner, or
             -- Nothing when it denotes the empty set
             restrictTo :: Maybe UID -> PExp -> Maybe PExp

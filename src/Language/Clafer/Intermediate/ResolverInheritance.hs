@@ -347,6 +347,14 @@ numericDomain PExp{_exp = IClaferId{_sident = prim}}
   | prim `elem` primitiveTypes = Just $ "the primitive type '" ++ prim ++ "'"
 numericDomain PExp{_exp = IFunExp{_op = ".", _exps = [_, PExp{_exp = IClaferId{_sident = "dref"}}]}} =
   Just "a dereference, i.e. values rather than clafers"
+-- a set operator with a numeric operand (@all i : (x.dref ++ y.dref)@,
+-- reachable with @--skip-resolver@) ranges over values too; before, such a
+-- local reached the Alloy generator and aborted it (HOARDE Codex, PR #52
+-- Cycle 1)
+numericDomain PExp{_exp = IFunExp{_op = op', _exps = [l, r]}}
+  | op' `elem` [iUnion, iDifference, iIntersection]
+  , Just what <- numericDomain l `mplus` numericDomain r
+  = Just $ "a set operator over " ++ what
 numericDomain _ = Nothing
 
 -- | Why an operand of @sum@ / @product@ is a number rather than a set, if
