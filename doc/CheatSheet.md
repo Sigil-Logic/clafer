@@ -270,7 +270,7 @@ no <local declarations> | <boolean expression>
 <name> : <set expression> ; <...>
 ```
 
-A `let` expression (`let x = a in <boolean expression>`) is accepted by the grammar but not implemented — it is rejected with a positioned error.  Write the bound name in place of the local instead: `[ a.b = 3 ]`, not `[ let x = a in x.b = 3 ]`.
+A `let` expression (`let x = a in <boolean expression>`) is accepted by the grammar but not implemented — it is rejected with a positioned error.  Write the body with the bound name in place of the local instead (if the body declares its own local of that name, rename it first): `[ a.b = 3 ]`, not `[ let x = a in x.b = 3 ]`.
 
 Numeric comparisons:
 

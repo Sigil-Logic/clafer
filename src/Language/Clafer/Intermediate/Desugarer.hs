@@ -352,16 +352,19 @@ desugarExp x = pExpDefPid (getSpan x) $ desugarExp' x
 -- pattern shapes, so 'Language.Clafer.desugar' declines the first one with a
 -- positioned semantic error before desugaring the module.  The right-hand
 -- side of the binding is a 'Name' -- a single identifier, not an expression
--- -- so @let x = a in e@ is exactly @e@ with @a@ written for @x@, which is
--- the rewrite 'unsupportedLetMsg' spells out.
+-- -- so @let x = a in e@ is @e@ with @a@ written for @x@, once a local that
+-- @e@ itself declares under the name @a@ is renamed (a quantifier local of
+-- that name would otherwise capture the inlined @a@); that is the rewrite
+-- 'unsupportedLetMsg' spells out.
 letExpressions :: Module -> [Exp]
 letExpressions m = sortOn getSpan [ e | e@LetExp{} <- universeOnOf biplate uniplate m ]
 
 -- | The message for a declined let-expression: the binding as written and
--- the inlining that replaces it.
+-- the inlining that replaces it, capture-safe -- a local the body declares
+-- under the bound name has to be renamed first.
 unsupportedLetMsg :: Exp -> String
 unsupportedLetMsg (LetExp _ (VarBinding _ local name) _) =
-  "Unsupported expression: 'let " ++ local' ++ " = " ++ bound ++ " in ...'.  Clafer does not implement let-expressions; inline the binding instead, writing " ++ bound ++ " wherever the body uses " ++ local'
+  "Unsupported expression: 'let " ++ local' ++ " = " ++ bound ++ " in ...'.  Clafer does not implement let-expressions; write the body with " ++ bound ++ " in place of " ++ local' ++ " instead (if the body declares its own local named " ++ bound ++ ", rename that local first)"
   where
     LocIdIdent _ (PosIdent (_, local')) = local
     Path _ segments = name
