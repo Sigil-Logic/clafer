@@ -1,0 +1,8 @@
+// Sigil-Logic/clafer#44: a let-expression is parsed but not implemented; it
+// is rejected with a positioned semantic error at the `let` keyword instead of
+// aborting the desugarer with the `[bug]` invariant of the pattern shapes.
+State
+    xor flag
+        a
+        b
+    [ let x = a in x ]

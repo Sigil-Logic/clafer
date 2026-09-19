@@ -26,6 +26,7 @@ import Functions
 import Language.Clafer.Intermediate.Intclafer
 import Language.Clafer.Intermediate.ResolverInheritance (rejectArithmeticAggregateOperands)
 import Language.Clafer.Front.AbsClafer (Span(..), noSpan)
+import Language.Clafer.Generator.Html (highlightErrors)
 import Data.Foldable hiding (forM_)
 import Data.Char (isAlpha)
 import Data.List (isInfixOf)
@@ -1140,3 +1141,89 @@ case_si46_set_operator_operands_are_not_declined =
           ] $ \(variant, model) ->
         compiledCheck (compileOneFragment defaultClaferArgs{mode = [Alloy, Choco]} model)
             @? (variant ++ ": a set-operator operand of `sum` is a set expression and must still compile (its rendering is Sigil-Logic/clafer#47)")
+
+-- Sigil-Logic/clafer#44: a let-expression (`let x = a in e`, grammar level
+-- Exp1) is parsed but was never implemented; on master it reached the
+-- desugarer's catch-all for untransformed pattern shapes and aborted the
+-- compiler with a `[bug]` message in every mode.  Per the Decision on #44,
+-- `Language.Clafer.desugar` declines the earliest `let` of the module with a
+-- semantic error positioned at the `let` keyword, before desugaring, naming
+-- the binding as written and the inlining that replaces it -- the right-hand
+-- side of a binding is a single identifier (a `Name`), so `let x = a in e`
+-- is exactly `e` with `a` written for `x`.
+
+si44_assertRejected :: String -> ClaferArgs -> String -> Pos -> String -> String -> Assertion
+si44_assertRejected variant args' model expectedPos local bound =
+    case compileOneFragment args' model of
+        Left [SemanticErr{pos = ErrPos{modelPos = actualPos}, msg = actual}] -> do
+            (actual == expected) @? (variant ++ ": expected the message\n" ++ expected ++ "\nbut got\n" ++ actual)
+            (actualPos == expectedPos) @? (variant ++ ": expected the error at " ++ show expectedPos ++ " but got " ++ show actualPos)
+        Left errors -> assertFailure (variant ++ ": expected exactly one positioned semantic error, got " ++ show errors)
+        Right _     -> assertFailure (variant ++ ": the model is not expected to compile")
+  where
+    expected = "Unsupported expression: 'let " ++ local ++ " = " ++ bound ++ " in ...'.  Clafer does not implement let-expressions; inline the binding instead, writing " ++ bound ++ " wherever the body uses " ++ local
+
+-- a `State` with an `xor flag` of `a` and `b`, and the given constraint on
+-- its fifth line
+si44_state :: String -> String
+si44_state constraint = "State\n    xor flag\n        a\n        b\n    " ++ constraint ++ "\n"
+
+-- the rejected shapes -- a `let` in a constraint, parenthesized, in a
+-- quantified body, in an assertion, in a goal -- with the position of the
+-- `let`, the binding, and the model with the binding inlined, which is the
+-- rewrite the message asks for
+si44_shapes :: [(String, String, Pos, String, String, String)]
+si44_shapes =
+    [ ("constraint", si44_state "[ let x = a in x ]", Pos 5 7, "x", "a", si44_state "[ a ]")
+    , ("parenthesized", si44_state "[ (let x = a in x) ]", Pos 5 8, "x", "a", si44_state "[ (a) ]")
+    , ("quantified body", "A *\n    b ?\n[ all y : A | let x = y in x.b ]\n", Pos 3 15, "x", "y", "A *\n    b ?\n[ all y : A | y.b ]\n")
+    , ("assertion", "A\n    b ?\nassert [ let x = A in some x.b ]\n", Pos 3 10, "x", "A", "A\n    b ?\nassert [ some A.b ]\n")
+    , ("goal", "A *\n    b ?\n<< minimize let x = A in # x.b >>\n", Pos 3 13, "x", "A", "A *\n    b ?\n<< minimize # A.b >>\n")
+    ]
+
+case_si44_let_expressions_are_rejected_at_the_let_keyword :: Assertion
+case_si44_let_expressions_are_rejected_at_the_let_keyword =
+    forM_ si44_shapes $ \(variant, model, expectedPos, local, bound, _) ->
+        si44_assertRejected variant defaultClaferArgs model expectedPos local bound
+
+-- the module's earliest `let` is the one reported: the first of two
+-- constraints, an outer `let` before the one nested in its body, and a
+-- nested clafer's constraint before a later top-level one
+case_si44_the_earliest_let_is_reported :: Assertion
+case_si44_the_earliest_let_is_reported = do
+    si44_assertRejected "first of two constraints" defaultClaferArgs
+        "A\n    a\n    b\n[ a ]\n[ let x = a in x ]\n[ let y = b in y ]\n" (Pos 5 3) "x" "a"
+    si44_assertRejected "outer before nested" defaultClaferArgs
+        "A\n    a\n    b\n[ let x = a in let y = b in x ]\n" (Pos 4 3) "x" "a"
+    si44_assertRejected "nested clafer before a later top-level constraint" defaultClaferArgs
+        "A\n    [ let x = A in x ]\n    a\n[ let y = A in y ]\n" (Pos 2 7) "x" "A"
+
+-- the decline precedes desugaring, so it holds in every mode and under
+-- --skip-resolver
+case_si44_rejection_holds_in_every_mode_and_under_skip_resolver :: Assertion
+case_si44_rejection_holds_in_every_mode_and_under_skip_resolver = do
+    forM_ [Alloy, Choco, Html, Graph, CVLGraph, JSON] $ \m ->
+        si44_assertRejected ("mode " ++ show m) defaultClaferArgs{mode = [m]}
+            (si44_state "[ let x = a in x ]") (Pos 5 7) "x" "a"
+    si44_assertRejected "skip resolver" defaultClaferArgs{skip_resolver = True}
+        (si44_state "[ let x = a in x ]") (Pos 5 7) "x" "a"
+
+-- the accepted shapes: the inlined twin of every rejected model compiles in
+-- both backends, and a `let` in a comment is text, not an expression
+case_si44_the_inlined_twins_compile_and_a_let_in_a_comment_is_text :: Assertion
+case_si44_the_inlined_twins_compile_and_a_let_in_a_comment_is_text = do
+    forM_ si44_shapes $ \(variant, _, _, _, _, twin) ->
+        compiledCheck (compileOneFragment defaultClaferArgs{mode = [Alloy, Choco]} twin)
+            @? (variant ++ ": the inlined twin is expected to compile:\n" ++ twin)
+    compiledCheck (compileOneFragment defaultClaferArgs{mode = [Alloy, Choco]} (si44_state "// [ let x = a in x ]\n    [ a ]"))
+        @? "a let in a comment is expected to compile"
+
+-- on a compile error the HTML view falls back to the raw source with the
+-- failed span marked, so the `let` is the marked span
+case_si44_the_html_view_marks_the_let :: Assertion
+case_si44_the_html_view_marks_the_let =
+    case compileOneFragment defaultClaferArgs{mode = [Html]} model of
+        Left errors -> si29_assertContains "HTML fallback" "<span class=\"error\" title=\"Compiling failed at line 5 column 7...\nUnsupported expression: 'let x = a in ...'." (highlightErrors model errors)
+        Right _     -> assertFailure "the model is not expected to compile"
+  where
+    model = si44_state "[ let x = a in x ]"
