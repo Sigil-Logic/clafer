@@ -27,6 +27,7 @@ import Language.Clafer.Intermediate.Intclafer
 import Language.Clafer.Intermediate.ResolverInheritance (rejectArithmeticAggregateOperands)
 import Language.Clafer.Front.AbsClafer (Span(..), noSpan)
 import Language.Clafer.Generator.Html (highlightErrors)
+import qualified Language.Clafer.ClaferArgs as Mode
 import Data.Foldable hiding (forM_)
 import Data.Char (isAlpha)
 import Data.List (isInfixOf)
@@ -1150,7 +1151,11 @@ case_si46_set_operator_operands_are_not_declined =
 -- semantic error positioned at the `let` keyword, before desugaring, naming
 -- the binding as written and the inlining that replaces it -- the right-hand
 -- side of a binding is a single identifier (a `Name`), so `let x = a in e`
--- is exactly `e` with `a` written for `x`.
+-- is `e` with `a` written for `x` once a local that `e` itself declares under
+-- the name `a` is renamed: in `[ let x = a in all a : A | x ]` the blind
+-- rewrite `[ all a : A | a ]` is captured by the quantifier local (Alloy
+-- `all a : c0_A | some a`), the scope-preserving `[ all z : A | a ]` is not
+-- (`some c0_a`) -- HOARDE Codex, PR #50 Cycle 1.
 
 si44_assertRejected :: String -> ClaferArgs -> String -> Pos -> String -> String -> Assertion
 si44_assertRejected variant args' model expectedPos local bound =
@@ -1161,7 +1166,7 @@ si44_assertRejected variant args' model expectedPos local bound =
         Left errors -> assertFailure (variant ++ ": expected exactly one positioned semantic error, got " ++ show errors)
         Right _     -> assertFailure (variant ++ ": the model is not expected to compile")
   where
-    expected = "Unsupported expression: 'let " ++ local ++ " = " ++ bound ++ " in ...'.  Clafer does not implement let-expressions; inline the binding instead, writing " ++ bound ++ " wherever the body uses " ++ local
+    expected = "Unsupported expression: 'let " ++ local ++ " = " ++ bound ++ " in ...'.  Clafer does not implement let-expressions; write the body with " ++ bound ++ " in place of " ++ local ++ " instead (if the body declares its own local named " ++ bound ++ ", rename that local first)"
 
 -- a `State` with an `xor flag` of `a` and `b`, and the given constraint on
 -- its fifth line
@@ -1169,9 +1174,11 @@ si44_state :: String -> String
 si44_state constraint = "State\n    xor flag\n        a\n        b\n    " ++ constraint ++ "\n"
 
 -- the rejected shapes -- a `let` in a constraint, parenthesized, in a
--- quantified body, in an assertion, in a goal -- with the position of the
+-- quantified body, in an assertion, in a goal, and the capture case (the
+-- body declares a local under the bound name) -- with the position of the
 -- `let`, the binding, and the model with the binding inlined, which is the
--- rewrite the message asks for
+-- rewrite the message asks for (for the capture case, with the body's local
+-- renamed)
 si44_shapes :: [(String, String, Pos, String, String, String)]
 si44_shapes =
     [ ("constraint", si44_state "[ let x = a in x ]", Pos 5 7, "x", "a", si44_state "[ a ]")
@@ -1179,11 +1186,24 @@ si44_shapes =
     , ("quantified body", "A *\n    b ?\n[ all y : A | let x = y in x.b ]\n", Pos 3 15, "x", "y", "A *\n    b ?\n[ all y : A | y.b ]\n")
     , ("assertion", "A\n    b ?\nassert [ let x = A in some x.b ]\n", Pos 3 10, "x", "A", "A\n    b ?\nassert [ some A.b ]\n")
     , ("goal", "A *\n    b ?\n<< minimize let x = A in # x.b >>\n", Pos 3 13, "x", "A", "A *\n    b ?\n<< minimize # A.b >>\n")
+    , ("capture", "A\na\n[ let x = a in all a : A | x ]\n", Pos 3 3, "x", "a", "A\na\n[ all z : A | a ]\n")
+    ]
+
+-- rejected shapes without an inlined twin: a `let` as a transition guard, as
+-- a parenthesized declaration domain, and with a qualified (`\\`-separated)
+-- bound name, which the message renders as written
+si44_moreShapes :: [(String, String, Pos, String, String)]
+si44_moreShapes =
+    [ ("transition guard", "A\n    b\n    c\n    [ b -[ let x = c in x ]-> c ]\n", Pos 4 12, "x", "c")
+    , ("parenthesized declaration domain", "A *\n    b ?\n[ all y : (let x = A in x) | y.b ]\n", Pos 3 12, "x", "A")
+    , ("qualified bound name", "A\n    b\n[ let x = A\\b in x ]\n", Pos 3 3, "x", "A\\b")
     ]
 
 case_si44_let_expressions_are_rejected_at_the_let_keyword :: Assertion
-case_si44_let_expressions_are_rejected_at_the_let_keyword =
+case_si44_let_expressions_are_rejected_at_the_let_keyword = do
     forM_ si44_shapes $ \(variant, model, expectedPos, local, bound, _) ->
+        si44_assertRejected variant defaultClaferArgs model expectedPos local bound
+    forM_ si44_moreShapes $ \(variant, model, expectedPos, local, bound) ->
         si44_assertRejected variant defaultClaferArgs model expectedPos local bound
 
 -- the module's earliest `let` is the one reported: the first of two
@@ -1198,11 +1218,11 @@ case_si44_the_earliest_let_is_reported = do
     si44_assertRejected "nested clafer before a later top-level constraint" defaultClaferArgs
         "A\n    [ let x = A in x ]\n    a\n[ let y = A in y ]\n" (Pos 2 7) "x" "A"
 
--- the decline precedes desugaring, so it holds in every mode and under
--- --skip-resolver
+-- the decline precedes desugaring, so it holds in every ClaferMode (all
+-- eight constructors) and under --skip-resolver
 case_si44_rejection_holds_in_every_mode_and_under_skip_resolver :: Assertion
 case_si44_rejection_holds_in_every_mode_and_under_skip_resolver = do
-    forM_ [Alloy, Choco, Html, Graph, CVLGraph, JSON] $ \m ->
+    forM_ [AlloyLtl, Alloy, JSON, Mode.Clafer, Html, Graph, CVLGraph, Choco] $ \m ->
         si44_assertRejected ("mode " ++ show m) defaultClaferArgs{mode = [m]}
             (si44_state "[ let x = a in x ]") (Pos 5 7) "x" "a"
     si44_assertRejected "skip resolver" defaultClaferArgs{skip_resolver = True}
