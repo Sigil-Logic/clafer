@@ -455,12 +455,20 @@ genCModule (imodule@IModule{_mDecls}, genv') scopes  otherTokens' =
             -- --skip-resolver), whose atoms the restriction below splits
             -- per owner (HOARDE Codex and Gemini, PR #52 Cycles 1 and 2)
             leafOwners :: PExp -> [UID]
-            leafOwners leaf@PExp{_iType = Just TClafer{_hi = hi@(u : _)}}
-                | isDeref leaf || hi == superChain u = maybeToList $ refOwner leaf
-                | otherwise = nub $ mapMaybe nearestOwner hi
-            leafOwners leaf = maybeToList $ refOwner leaf
-            isDeref PExp{_exp = IFunExp{_op = ".", _exps = [_, PExp{_exp = IClaferId{_sident = "dref"}}]}} = True
-            isDeref _ = False
+            leafOwners = nub . map snd . pathOwners
+            -- the (source, owner) pairs of a leaf: the source is the member
+            -- of a multi-reference local the atom comes from, the owner the
+            -- clafer whose reference the aggregate reads at this depth; a
+            -- dereference maps each pair to the owner of the reference
+            -- target, so a local over `rx ++ ry` that starts a chain keeps
+            -- its sources for the split (HOARDE Codex, PR #52 Cycle 3)
+            pathOwners :: PExp -> [(UID, UID)]
+            pathOwners PExp{_exp = IFunExp{_op = ".", _exps = [inner, PExp{_exp = IClaferId{_sident = "dref"}}]}} =
+                [ (source, target) | (source, owner) <- pathOwners inner, Just target <- [referenceTargetOwner owner] ]
+            pathOwners PExp{_iType = Just TClafer{_hi = hi@(u : _)}}
+                | hi == superChain u = [ (u, owner) | Just owner <- [nearestOwner u] ]
+                | otherwise = nub [ (member, owner) | member <- hi, Just owner <- [nearestOwner member] ]
+            pathOwners leaf = [ (owner, owner) | Just owner <- [refOwner leaf] ]
             -- A dereference of a set expression -- `(r1 ++ r2).dref`, a
             -- reference chain under a set operator, `r1 -> N` with `N ->>
             -- integer` -- is pushed to the leaves, `r1.dref ++ r2.dref`:
@@ -506,10 +514,19 @@ genCModule (imodule@IModule{_mDecls}, genv') scopes  otherTokens' =
                         (Just l', Just r') -> Just p{_exp = e{_exps = [l', r']}}
             restrictTo (Just owner) leaf
                 | leafOwners leaf == [owner] = Just leaf
-                | owner `elem` leafOwners leaf =
-                    -- a multi-reference local: its atoms of this owner, `n ** owner`
-                    Just leaf{_exp = IFunExp iIntersection [leaf, PExp (Just $ TClafer [owner]) "" (_inPos leaf) (IClaferId "" owner True (GlobalBind owner))]}
+                | otherwise = case nub [ source | (source, owner') <- pathOwners leaf, owner' == owner ] of
+                    []      -> Nothing
+                    -- a multi-reference local: its atoms from the sources of
+                    -- this owner, `n ** (rx ++ ry)`, restricted before the
+                    -- dereferences it starts (`joinRef(inter(n, ...))`)
+                    sources -> Just $ restrictInnermost sources leaf
             restrictTo _ _ = Nothing
+            restrictInnermost :: [UID] -> PExp -> PExp
+            restrictInnermost sources p@PExp{_exp = e@IFunExp{_op = ".", _exps = [inner, d@PExp{_exp = IClaferId{_sident = "dref"}}]}} =
+                p{_exp = e{_exps = [restrictInnermost sources inner, d]}}
+            restrictInnermost sources leaf =
+                leaf{_exp = IFunExp iIntersection [leaf, foldr1 (\g rest -> PExp Nothing "" (_inPos leaf) (IFunExp iUnion [g, rest])) (map globalOf sources)]}
+                where globalOf u = PExp (Just $ TClafer [u]) "" (_inPos leaf) (IClaferId "" u True (GlobalBind u))
 
     isSetOperator :: PExp -> Bool
     isSetOperator PExp{_exp = IFunExp{_op = op', _exps = [_, _]}} = op' `elem` [iUnion, iDifference, iIntersection]

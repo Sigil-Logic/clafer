@@ -1282,6 +1282,8 @@ case_si47_reference_chains_under_a_set_operator_follow_the_chain = do
         "Function 'sum' cannot be performed on a set expression over 'r1', whose reference chain reaches 'A', which has no reference"
     si47_assertRefused "a chain reaching a clafer without a reference in the second operand (HOARDE Junie, Cycle 3)" defaultClaferArgs "abstract A\na1 : A\nabstract N ->> integer\nn1 : N = 3\nr1 -> N = n1\nr2 -> A = a1\ntotal -> integer\n[ total = sum (r1 ++ r2) ]\n" (Pos 8 22)
         "Function 'sum' cannot be performed on a set expression over 'r2', whose reference chain reaches 'A', which has no reference"
+    si47_assertRefused "a chain reaching a clafer without a reference under intersection names the source leaf (HOARDE Codex, Cycle 3)" defaultClaferArgs "abstract A\na : A\nabstract S -> A\ns : S -> A = a\nabstract R -> S\nr1 : R -> S = s\nr2 : R -> S = s\ntotal -> integer\n[ total = sum (r1 ** r2) ]\n" (Pos 9 16)
+        "Function 'sum' cannot be performed on a set expression over 'r1', whose reference chain reaches 'A', which has no reference"
     si47_assertRefused "chains reaching a clafer without a reference on both sides" defaultClaferArgs "abstract A\na1 : A\nr1 -> A = a1\nr2 -> A = a1\ntotal -> integer\n[ total = sum (r1 ++ r2) ]\n" (Pos 6 16)
         "Function 'sum' cannot be performed on a set expression over 'r1', whose reference chain reaches 'A', which has no reference"
 
@@ -1312,6 +1314,22 @@ case_si47_locals_over_set_expressions_without_the_resolver = do
     si46_assertRejected "a local declared over a set operator over dereferences" defaultClaferArgs{skip_resolver = True}
         "x -> integer\ny -> integer\n[ all i : (x.dref ++ y.dref) | sum i > 0 ]\n" (Pos 3 36)
         (si46_msg "sum" "the local 'i' is declared over a set operator over a dereference, i.e. values rather than clafers")
+    -- HOARDE Codex, Cycle 3: a multi-reference local that starts a reference
+    -- chain is split per source before the dereference in Choco
+    -- (`joinRef(inter(n, global(rx)))`), and a member without a reference
+    -- reached through the local, directly or after a hop, is refused at the
+    -- local -- also when the local is the whole operand, where the
+    -- identifier rule's own first-reference dereference would otherwise
+    -- rescue it
+    let chains = fromRight $ compileOneFragment skip "x -> integer\n[ x = 1 ]\nrx -> x\n[ rx = x ]\ny -> integer\n[ y = 2 ]\nry -> y\n[ ry = y ]\nz -> integer\n[ z = 3 ]\nrz -> z\n[ rz = z ]\n[ all n : ((rx ++ ry) ++ rz) | sum n > 0 ]\n"
+    si29_assertContains "a multi-reference local starting chains (Alloy)" "fact { all  n : (rx + ry) + rz | (sum temp : (n.(@rx_ref + @ry_ref + @rz_ref)) | temp.(@x_ref + @y_ref + @z_ref)) > 0 }" (outputCode $ fromJust $ Map.lookup Alloy chains)
+    si29_assertContains "a multi-reference local starting chains (Choco)" "greaterThan(add(sum(joinRef(inter(n, global(rx)))), add(sum(joinRef(inter(n, global(ry)))), sum(joinRef(inter(n, global(rz)))))), constant(0))" (outputCode $ fromJust $ Map.lookup Choco chains)
+    si47_assertRefused "a reference-less member reached through a local, after a hop" defaultClaferArgs{skip_resolver = True}
+        "a\nra -> a\n[ ra = a ]\nx -> integer\n[ x = 1 ]\nrx -> x\n[ rx = x ]\ny -> integer\n[ y = 2 ]\nry -> y\n[ ry = y ]\nassert [ all n : ((ra ++ rx) ++ ry) | n in ra => sum (n ++ rx) = 1 ]\n" (Pos 12 55)
+        "Function 'sum' cannot be performed on a set expression over 'n', whose reference chain reaches 'a', which has no reference"
+    si47_assertRefused "a reference-less member of a local that is the whole operand" defaultClaferArgs{skip_resolver = True}
+        "a\nx -> integer\n[ x = 1 ]\n[ all n : (a ++ x) | sum n > 0 ]\n" (Pos 4 26)
+        "Function 'sum' cannot be performed on a set expression over 'n', whose reference chain reaches 'a', which has no reference"
     si46_assertRejected "a local declared over a set operator over locals bound over values (HOARDE Codex, Cycle 2)" defaultClaferArgs{skip_resolver = True}
         "x -> integer\ny -> integer\n[ all i : x.dref | all j : y.dref | all k : (i ++ j) | sum k > 0 ]\n" (Pos 3 60)
         (si46_msg "sum" "the local 'k' is declared over a set operator over a dereference, i.e. values rather than clafers")
