@@ -1,0 +1,8 @@
+// Sigil-Logic/clafer#46: the operand of `sum` must be a set of integer
+// clafers; a subtraction yields an integer, so it is rejected with a
+// positioned semantic error instead of rendering an illegal Alloy join.
+abstract N ->> integer
+n1 : N = 5
+n2 : N = 2
+x -> integer
+[ x = sum (N - 1) ]

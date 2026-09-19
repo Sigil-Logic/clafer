@@ -507,6 +507,13 @@ genIFunExp    pid'      genEnv    resPath     (IFunExp "min" [exp']) = Concat (I
 genIFunExp    pid'      genEnv    resPath     (IFunExp "max" [exp']) = Concat (IrPExp pid') $ (CString "max[") : (genPExp' genEnv resPath exp') : [CString "]"]
 -- ignore navigation from the root
 genIFunExp    _         genEnv    resPath     (IFunExp "."  [PExp{_exp=IClaferId{_sident="root"}}, exp2]) = genPExp' genEnv resPath exp2
+-- `removeright` / `getRight` assume the `sum` operand is a navigation path.
+-- The resolver declines the integer-valued operand shapes it recognizes
+-- before generation -- arithmetic, `#`, nested `sum`/`product`/`min`/`max`,
+-- an if-then-else with a numeric branch, numeric literals, a primitive type,
+-- a local declared over a primitive type or a dereference
+-- (ResolverInheritance.rejectArithmeticAggregateOperands, Sigil-Logic/clafer#46);
+-- a set-operator operand still reaches here and is mis-rendered (#47).
 genIFunExp    pid'      genEnv    resPath     (IFunExp op' exps')
   | op' == iSumSet = genIFunExp pid' genEnv resPath (IFunExp iSumSet' [(removeright (head exps')), (getRight $ head exps')])
   | op' == iSumSet'  = Concat (IrPExp pid') $ intl exps'' (map CString $ genOp iSumSet)

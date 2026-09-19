@@ -39,6 +39,7 @@ resolveModule    args'         imodule =
   do
     r <- resolveNModule $ nameModule (skip_resolver args') imodule
     rejectUnfoldableReferenceTargets $ fst r
+    rejectArithmeticAggregateOperands $ fst r
     resolveNamesModule args' =<< rom' (rem' r)
   where
   rem' = if flatten_inheritance args' then resolveEModule else id

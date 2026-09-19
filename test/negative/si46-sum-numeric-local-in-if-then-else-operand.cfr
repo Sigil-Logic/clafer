@@ -1,0 +1,6 @@
+// Sigil-Logic/clafer#46: a numeric local inside an if-then-else branch makes
+// the operand a number, so it is rejected instead of rendering an illegal Alloy
+// join (HOARDE Codex, PR #48 Cycle 3).
+abstract N ->> integer
+n1 : N = 5
+[ all i : integer | sum (if some n1 then i else N.dref) > 0 ]

@@ -310,6 +310,8 @@ product <numeric expression>
 # <set expression>
 ```
 
+The operand of `sum` and `product` is a set of integer clafers — `sum N`, `sum N.dref`, `sum Feature.cost`.  A number in that position — arithmetic (`sum (N - 1)`), a cardinality, a nested aggregate or `min`/`max`, an `if-then-else` with a numeric branch, a literal, a primitive type (`sum integer`), or a local declared over one or over a dereference (`all i : integer | sum i`, `all i : N.dref | sum i`) — is rejected with a positioned error.  Aggregate first and apply the arithmetic to the result: `sum N - 1`, not `sum (N - 1)`.
+
 ### String expressions
 
 `<string expression>`:

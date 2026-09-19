@@ -1,0 +1,7 @@
+// Sigil-Logic/clafer#46: a cardinality yields an integer, so `sum (#N)` is
+// rejected with a positioned semantic error.
+abstract N ->> integer
+n1 : N = 5
+n2 : N = 2
+x -> integer
+[ x = sum (#N) ]

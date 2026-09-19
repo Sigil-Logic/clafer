@@ -1,0 +1,7 @@
+// Sigil-Logic/clafer#46: the primitive type itself is not a set of clafers, so
+// `sum integer` is rejected with a positioned semantic error instead of
+// aborting the Alloy generator (HOARDE Codex, PR #48 Cycle 2).
+abstract N ->> integer
+n1 : N = 5
+x -> integer
+[ x = sum integer ]
