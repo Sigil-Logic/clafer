@@ -351,20 +351,21 @@ desugarExp x = pExpDefPid (getSpan x) $ desugarExp' x
 -- node and would abort with the @[bug]@ invariant of the untransformed
 -- pattern shapes, so 'Language.Clafer.desugar' declines the first one with a
 -- positioned semantic error before desugaring the module.  The right-hand
--- side of the binding is a 'Name' -- a single identifier, not an expression
--- -- so @let x = a in e@ is @e@ with @a@ written for @x@, once a local that
--- @e@ itself declares under the name @a@ is renamed (a quantifier local of
--- that name would otherwise capture the inlined @a@); that is the rewrite
--- 'unsupportedLetMsg' spells out.
+-- side of the binding is a 'Name' -- a single, possibly @\\@-qualified name,
+-- not an expression -- so a @let@ is always eliminable: write the name for
+-- each use of the let-local in the body while preserving the body's scopes
+-- (a use bound by an inner local of the same name stays as it is; an inner
+-- local the name would otherwise refer to is renamed first, or it would
+-- capture the inlined name); that is the rewrite 'unsupportedLetMsg' spells
+-- out.
 letExpressions :: Module -> [Exp]
 letExpressions m = sortOn getSpan [ e | e@LetExp{} <- universeOnOf biplate uniplate m ]
 
 -- | The message for a declined let-expression: the binding as written and
--- the inlining that replaces it, capture-safe -- a local the body declares
--- under the bound name has to be renamed first.
+-- the scope-preserving rewrite that replaces it.
 unsupportedLetMsg :: Exp -> String
 unsupportedLetMsg (LetExp _ (VarBinding _ local name) _) =
-  "Unsupported expression: 'let " ++ local' ++ " = " ++ bound ++ " in ...'.  Clafer does not implement let-expressions; write the body with " ++ bound ++ " in place of " ++ local' ++ " instead (if the body declares its own local named " ++ bound ++ ", rename that local first)"
+  "Unsupported expression: 'let " ++ local' ++ " = " ++ bound ++ " in ...'.  Clafer does not implement let-expressions; write " ++ bound ++ " for each use of " ++ local' ++ " in the body instead, preserving the body's scopes (a use of " ++ local' ++ " bound by an inner local named " ++ local' ++ " stays as it is; an inner local that " ++ bound ++ " would otherwise refer to is renamed first)"
   where
     LocIdIdent _ (PosIdent (_, local')) = local
     Path _ segments = name
