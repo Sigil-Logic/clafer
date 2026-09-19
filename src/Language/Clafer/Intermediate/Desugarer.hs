@@ -25,6 +25,9 @@ into Intermediate representation (IR) from "Language.Clafer.Intermediate.Intclaf
 -}
 module Language.Clafer.Intermediate.Desugarer where
 
+import Control.Lens (universeOnOf)
+import Data.Data.Lens (biplate, uniplate)
+import Data.List (intercalate, sortOn)
 import Data.Maybe (fromMaybe)
 import Prelude hiding ((||))
 import Language.Clafer.Common
@@ -341,6 +344,35 @@ desugarExp :: Exp -> PExp
 desugarExp x = pExpDefPid (getSpan x) $ desugarExp' x
 
 
+-- | The let-expressions of a module in source order -- earliest first, an
+-- outer @let@ before the ones nested in its body (Sigil-Logic/clafer#44).
+-- The grammar admits @let <local> = <name> in <expression>@ ('LetExp', level
+-- @Exp1@) but no pass implements it: 'desugarExp'' has no translation for the
+-- node and would abort with the @[bug]@ invariant of the untransformed
+-- pattern shapes, so 'Language.Clafer.desugar' declines the first one with a
+-- positioned semantic error before desugaring the module.  The right-hand
+-- side of the binding is a 'Name' -- a single, possibly @\\@-qualified name,
+-- not an expression -- so a @let@ is always eliminable: write the name for
+-- each use of the let-local in the body while preserving the body's scopes
+-- (a use bound by an inner local of the same name stays as it is; an inner
+-- local the name would otherwise refer to is renamed first, or it would
+-- capture the inlined name); that is the rewrite 'unsupportedLetMsg' spells
+-- out.
+letExpressions :: Module -> [Exp]
+letExpressions m = sortOn getSpan [ e | e@LetExp{} <- universeOnOf biplate uniplate m ]
+
+-- | The message for a declined let-expression: the binding as written and
+-- the scope-preserving rewrite that replaces it.
+unsupportedLetMsg :: Exp -> String
+unsupportedLetMsg (LetExp _ (VarBinding _ local name) _) =
+  "Unsupported expression: 'let " ++ local' ++ " = " ++ bound ++ " in ...'.  Clafer does not implement let-expressions; write " ++ bound ++ " for each use of " ++ local' ++ " in the body instead, preserving the body's scopes (a use of " ++ local' ++ " bound by an inner local named " ++ local' ++ " stays as it is; an inner local that " ++ bound ++ " would otherwise refer to is renamed first)"
+  where
+    LocIdIdent _ (PosIdent (_, local')) = local
+    Path _ segments = name
+    bound = intercalate "\\" [ segment | ModIdIdent _ (PosIdent (_, segment)) <- segments ]
+unsupportedLetMsg other = error $ "[bug] Desugarer.unsupportedLetMsg called on a non-let expression '" ++ show other ++ "'"
+
+
 translateTmpPatterns :: Exp -> Exp
 translateTmpPatterns e = case e of
   TmpPatNever _ p scope -> case scope of
@@ -473,7 +505,7 @@ desugarExp' x = let x' =  translateTmpPatterns x in case x' of
   EJoin _ exp0 exp'         -> dop iJoin         [exp0, exp']
   ClaferId _ name  -> desugarName name
   TransitionExp{} -> showPatErr
-  LetExp{} -> showPatErr
+  LetExp{} -> showPatErr  -- unreachable: 'Language.Clafer.desugar' declines every let-expression first ('letExpressions')
   TmpPatNever{} -> showPatErr
   TmpPatSometime{} -> showPatErr
   TmpPatLessOrOnce{} -> showPatErr
