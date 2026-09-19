@@ -1,0 +1,9 @@
+// Sigil-Logic/clafer#47: a set operator under `sum` ranges over clafers; an
+// operand that is a dereference yields values rather than clafers and is
+// rejected with a positioned semantic error instead of a mis-rendered
+// aggregate.
+abstract N ->> integer
+n1 : N = 5
+m -> integer = 2
+x -> integer
+[ x = sum (n1 ++ m.dref) ]
