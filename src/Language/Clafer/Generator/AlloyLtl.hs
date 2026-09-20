@@ -639,13 +639,20 @@ genPExp'    genEnv    ctx       (PExp iType' pid' pos exp') = case exp' of
   IClaferId _ "integer" _ _ -> CString "Int"
   IClaferId _ "int" _ _ -> CString "Int"
   IClaferId _ "string" _ _ -> CString "Int"
-  IClaferId _ "dref" _ _ -> CString $ getClaferIdWithState ctx ("@"  ++ getTClaferUID iType' ++ "_ref")
-          (isNothing (boundIClafer >>= _reference >>= _refModifier))
+  IClaferId _ "dref" _ _ -> CString $ genRefRelations iType'
     where
-      boundIClafer = findIClafer (uidIClaferMap genEnv) (getTClaferUID iType')
-      getTClaferUID (Just TMap{_so = TClafer{_hi = [u]}}) = u
-      getTClaferUID (Just TMap{_so = TClafer{_hi = (u:_)}}) = u
-      getTClaferUID t = error $ "[bug] Alloy.genPExp'.getTClaferUID: unknown type: " ++ show t
+      -- Sigil-Logic/clafer#47: a dereference typed over several reference
+      -- owners -- `(x ++ y).dref`, built by the aggregate rule of the type
+      -- resolver, whose TMap keeps the owners apart in a TUnion -- is the
+      -- union of their reference relations, each with its state suffix,
+      -- `(@c0_x_ref.t' + @c0_y_ref.t')`.
+      genRefRelations (Just TMap{_so = TUnion owners}) = "(" ++ intercalate " + " (map refRelation owners) ++ ")"
+      genRefRelations (Just TMap{_so = owner})        = refRelation owner
+      genRefRelations t = error $ "[bug] AlloyLtl.genPExp'.genRefRelations: unknown type: " ++ show t
+      refRelation TClafer{_hi = (u:_)} =
+        getClaferIdWithState ctx ("@" ++ u ++ "_ref")
+          (isNothing (findIClafer (uidIClaferMap genEnv) u >>= _reference >>= _refModifier))
+      refRelation t = error $ "[bug] AlloyLtl.genPExp'.refRelation: unknown reference owner: " ++ show t
   IClaferId _ sid isTop' bind@(GlobalBind claferUid) -> CString $
       if head sid == '~'
       then if bound
@@ -714,12 +721,15 @@ genIFunExp :: GenEnv -> String -> GenCtx -> IExp             -> Concat
 genIFunExp    genEnv    pid'      ctx       (IFunExp op' exps') =
   if (op' `elem` ltlOps)
   then Concat (IrPExp pid') $ surroundPar $ genLtlExp genEnv ctx op' exps'
-  -- `removeright` / `getRight` assume a navigation path: the resolver declines
-  -- the numeric operand shapes it recognizes (arithmetic, `#`, nested
-  -- aggregates and extrema, if-then-else with a numeric branch, literals,
-  -- primitive types and locals declared over them;
-  -- ResolverInheritance.rejectArithmeticAggregateOperands, Sigil-Logic/clafer#46);
-  -- a set-operator operand still reaches here mis-rendered (#47).
+  -- `removeright` / `getRight` split the `sum` operand into the set and its
+  -- trailing `dref`, including a set operator dereferenced as a whole by the
+  -- type resolver, `(x ++ y).dref`, whose `dref` renders the union of the
+  -- members' reference relations (Sigil-Logic/clafer#47; see Alloy.hs).  The
+  -- resolver declines the numeric operand shapes it recognizes (arithmetic,
+  -- `#`, nested aggregates and extrema, if-then-else with a numeric branch,
+  -- literals, primitive types and locals declared over them, and any of
+  -- these or a dereference inside a set operator;
+  -- ResolverInheritance.rejectArithmeticAggregateOperands, Sigil-Logic/clafer#46, #47).
   else if (op' == iSumSet)
     then genIFunExp genEnv pid' ctx (IFunExp iSumSet' [removeright firstExp, getRight firstExp])
     else if (op' == iSumSet')

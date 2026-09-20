@@ -30,7 +30,7 @@ import Language.Clafer.Generator.Html (highlightErrors)
 import qualified Language.Clafer.ClaferArgs as Mode
 import Data.Foldable hiding (forM_)
 import Data.Char (isAlpha)
-import Data.List (isInfixOf)
+import Data.List (isInfixOf, isPrefixOf)
 import Data.Maybe
 import Control.Monad
 import Language.Clafer
@@ -1141,7 +1141,223 @@ case_si46_set_operator_operands_are_not_declined =
           , ("difference", "abstract N ->> integer\nn1 : N = 5\nn2 : N = 2\nx -> integer\n[ x = sum (N -- n1) ]\n")
           ] $ \(variant, model) ->
         compiledCheck (compileOneFragment defaultClaferArgs{mode = [Alloy, Choco]} model)
-            @? (variant ++ ": a set-operator operand of `sum` is a set expression and must still compile (its rendering is Sigil-Logic/clafer#47)")
+            @? (variant ++ ": a set-operator operand of `sum` is a set expression and must still compile (it is dereferenced as a whole and aggregated over every member, Sigil-Logic/clafer#47, `case_si47_*` below)")
+
+-- Sigil-Logic/clafer#47: `sum` / `product` over a set operator aggregates the
+-- value of every member of the set expression.  Before, the type resolver
+-- typed `sum (x ++ y)` from the operands' separate dereference alternatives
+-- and the first "integer" one, `x ++ y.dref`, reached both generators: Alloy
+-- rendered `sum temp : (c0_x + c0_y) | temp.@c0_y_ref` (the atoms of `x`
+-- contributed nothing) and Choco `sum(union(global(c0_x),
+-- joinRef(global(c0_y))))`, which chocosolver rejects (`Cannot c0_x ++
+-- int`); `sum (N -- n1)` dereferenced both operands to integer sets (`Cannot
+-- sum(int)`), and `product (n1 ++ n2)` aborted the Choco generator.  Now the
+-- resolver dereferences the set expression as a whole, `(x ++ y).dref`, typed
+-- by the union of its leaves' reference maps; Alloy renders the union of the
+-- reference relations, `temp.(@c0_x_ref + @c0_y_ref)`, and Choco partitions
+-- the expression by reference owner and combines the parts with `add` /
+-- `mul` (chocosolver aggregates over set operators under one reference and
+-- rejects a union of unrelated clafers as `Ambiguous sum`).  A dereference
+-- or a number inside the set operator is declined by the #46 pre-pass,
+-- positioned at that operand; a set operator whose operands share no clafer
+-- type, and a leaf without a reference, are refused by the type resolver.
+
+si47_model :: String -> String
+si47_model constraint = "abstract N ->> integer\nn1 : N = 5\nn2 : N = 2\nm -> integer = 5\nx -> integer\n" ++ constraint ++ "\n"
+
+si47_msg :: String -> String -> String -> String
+si47_msg op' setOp detail = "Unsupported operand of '" ++ op' ++ "': within '" ++ setOp ++ "', " ++ detail ++ ", not a set.  The operand of '" ++ op' ++ "' must be a set of integer clafers, as in " ++ op' ++ " N or " ++ op' ++ " N.dref; the operands of '" ++ setOp ++ "' under '" ++ op' ++ "' must themselves be sets of integer clafers, as in " ++ op' ++ " (x " ++ setOp ++ " y)"
+
+case_si47_sum_over_a_set_operator_aggregates_every_member_in_both_backends :: Assertion
+case_si47_sum_over_a_set_operator_aggregates_every_member_in_both_backends = do
+    forM_ [ ("difference", "[ x = sum (N -- n1) ]", "fact { (c0_x.@c0_x_ref) = (sum temp : (c0_N - c0_n1) | temp.@c0_N_ref) }", "Constraint(equal(joinRef(global(c0_x)), sum(diff(global(c0_N), global(c0_n1)))));")
+          , ("intersection", "[ x = sum (N ** n1) ]", "fact { (c0_x.@c0_x_ref) = (sum temp : (c0_N & c0_n1) | temp.@c0_N_ref) }", "Constraint(equal(joinRef(global(c0_x)), sum(inter(global(c0_N), global(c0_n1)))));")
+          , ("union of siblings under one reference", "[ x = sum (n1 ++ n2) ]", "fact { (c0_x.@c0_x_ref) = (sum temp : (c0_n1 + c0_n2) | temp.@c0_N_ref) }", "Constraint(equal(joinRef(global(c0_x)), sum(union(global(c0_n1), global(c0_n2)))));")
+          , ("overlapping union", "[ x = sum (N ++ n1) ]", "fact { (c0_x.@c0_x_ref) = (sum temp : (c0_N + c0_n1) | temp.@c0_N_ref) }", "Constraint(equal(joinRef(global(c0_x)), sum(union(global(c0_N), global(c0_n1)))));")
+          , ("nested operators", "[ x = sum ((n1 ++ n2) -- n1) ]", "fact { (c0_x.@c0_x_ref) = (sum temp : ((c0_n1 + c0_n2) - c0_n1) | temp.@c0_N_ref) }", "Constraint(equal(joinRef(global(c0_x)), sum(diff(union(global(c0_n1), global(c0_n2)), global(c0_n1)))));")
+          , ("union of two references", "[ x = sum (n1 ++ m) ]", "fact { (c0_x.@c0_x_ref) = (sum temp : (c0_n1 + c0_m) | temp.(@c0_N_ref + @c0_m_ref)) }", "Constraint(equal(joinRef(global(c0_x)), add(sum(global(c0_n1)), sum(global(c0_m)))));")
+          , ("nested operators over two references", "[ x = sum (n1 ++ (m ++ n2)) ]", "fact { (c0_x.@c0_x_ref) = (sum temp : (c0_n1 + (c0_m + c0_n2)) | temp.(@c0_N_ref + @c0_m_ref)) }", "Constraint(equal(joinRef(global(c0_x)), add(sum(union(global(c0_n1), global(c0_n2))), sum(global(c0_m)))));")
+          , ("difference after a union of two references (the parts are restricted per reference)", "[ x = sum ((n1 ++ m) -- n1) ]", "fact { (c0_x.@c0_x_ref) = (sum temp : ((c0_n1 + c0_m) - c0_n1) | temp.(@c0_N_ref + @c0_m_ref)) }", "Constraint(equal(joinRef(global(c0_x)), add(sum(diff(global(c0_n1), global(c0_n1))), sum(global(c0_m)))));")
+          , ("a quantifier local as an operand", "[ all n : N | sum (n ++ n2) > 0 ]", "fact { all  n : c0_N | (sum temp : (n + c0_n2) | temp.@c0_N_ref) > 0 }", "Constraint(all([decl([n = local(\"n\")], global(c0_N))], greaterThan(sum(union(n, global(c0_n2))), constant(0))));")
+          ] $ \(variant, constraint, alloyExpected, chocoExpected) -> do
+        si29_assertContains (variant ++ " (Alloy)") alloyExpected (si31_alloy (si47_model constraint))
+        si29_assertContains (variant ++ " (Choco)") chocoExpected (si31_choco (si47_model constraint))
+    let i239 = "x ->> integer 2..*\n  [ this >= -2 && this <= 2 ]\ny ->> integer 2..*\n  [ this >= -2 && this <= 2 ]\nz -> integer = sum (x ++ y)\n"
+    si29_assertContains "union of unrelated clafers, i239 (Alloy)" "fact { (some c0_z) => ((c0_z.@c0_z_ref) = (sum temp : (c0_x + c0_y) | temp.(@c0_x_ref + @c0_y_ref))) }" (si31_alloy i239)
+    si29_assertContains "union of unrelated clafers, i239 (Choco)" "Constraint(implies(some(global(c0_z)), equal(joinRef(global(c0_z)), add(sum(global(c0_x)), sum(global(c0_y))))));" (si31_choco i239)
+    let navigations = "abstract Feature\n    cost -> integer\nf1 : Feature\n    [ cost = 5 ]\nabstract Other\n    price -> integer\no1 : Other\n    [ price = 2 ]\nx -> integer\n[ x = sum (Feature.cost ++ Other.price) ]\n"
+    si29_assertContains "navigation operands (Alloy)" "fact { (c0_x.@c0_x_ref) = (sum temp : ((c0_Feature.@r_c0_cost) + (c0_Other.@r_c0_price)) | temp.(@c0_cost_ref + @c0_price_ref)) }" (si31_alloy navigations)
+    si29_assertContains "navigation operands (Choco)" "Constraint(equal(joinRef(global(c0_x)), add(sum(join(global(c0_Feature), c0_cost)), sum(join(global(c0_Other), c0_price)))));" (si31_choco navigations)
+    si29_assertContains "goal (Choco)" "max(add(sum(global(c0_n1)), sum(global(c0_m))));" (si31_choco (si47_model "<< maximize sum (n1 ++ m) >>"))
+    let alloyLtlCode = si31_alloy ("final marker\n" ++ si47_model "[ G (x = sum (n1 ++ m)) ]")
+    si29_assertContains "temporal (AlloyLtl)" "sum temp : (@r_c0_n1.t' + @r_c0_m.t') | temp.(@c0_N_ref.t' + @c0_m_ref.t')" alloyLtlCode
+
+-- Alloy declines every model containing `product`, so the Choco rendering is
+-- what can be pinned; before, this shape aborted the compiler ("Choco:
+-- Unexpected product argument.").
+case_si47_product_over_a_set_operator_renders_in_choco :: Assertion
+case_si47_product_over_a_set_operator_renders_in_choco = do
+    si29_assertContains "one reference" "Constraint(equal(joinRef(global(c0_x)), product(union(global(c0_n1), global(c0_n2)))));" (si31_choco (si47_model "[ x = product (n1 ++ n2) ]"))
+    si29_assertContains "two references" "Constraint(equal(joinRef(global(c0_x)), mul(product(global(c0_n1)), product(global(c0_m)))));" (si31_choco (si47_model "[ x = product (n1 ++ m) ]"))
+    si29_assertContains "difference" "Constraint(equal(joinRef(global(c0_x)), product(diff(global(c0_N), global(c0_n1)))));" (si31_choco (si47_model "[ x = product (N -- n1) ]"))
+
+case_si47_single_operand_aggregates_are_unchanged :: Assertion
+case_si47_single_operand_aggregates_are_unchanged = do
+    let model = "abstract N ->> integer\nn1 : N = 5\nn2 : N = 2\nr -> N\nx -> integer\ny -> integer\n[ x = sum N ]\n[ y = sum N.dref ]\n[ x = sum r ]\n[ some i : N | sum i > 0 ]\n[ x = max (n1 ++ n2) ]\n[ y = # (n1 ++ n2) ]\n"
+        alloyCode = si31_alloy model
+        chocoCode = si31_choco model
+    si29_assertContains "sum N (Alloy)" "fact { (c0_x.@c0_x_ref) = (sum temp : c0_N | temp.@c0_N_ref) }" alloyCode
+    si29_assertContains "sum N.dref (Alloy)" "fact { (c0_y.@c0_y_ref) = (sum temp : c0_N | temp.@c0_N_ref) }" alloyCode
+    si29_assertContains "sum over a reference chain (Alloy)" "fact { (c0_x.@c0_x_ref) = (sum temp : (c0_r.@c0_r_ref) | temp.@c0_N_ref) }" alloyCode
+    si29_assertContains "sum over a reference chain (Choco)" "Constraint(equal(joinRef(global(c0_x)), sum(joinRef(global(c0_r)))));" chocoCode
+    si29_assertContains "sum over a local (Alloy)" "fact { some  i : c0_N | (sum temp : i | temp.@c0_N_ref) > 0 }" alloyCode
+    si29_assertContains "max over a set operator takes the values (Alloy)" "fact { (c0_x.@c0_x_ref) = (max[(c0_n1.@c0_N_ref) + (c0_n2.@c0_N_ref)]) }" alloyCode
+    si29_assertContains "max over a set operator takes the values (Choco)" "maximum(union(joinRef(global(c0_n1)), joinRef(global(c0_n2))))" chocoCode
+    si29_assertContains "cardinality of a set operator (Alloy)" "fact { (c0_y.@c0_y_ref) = (#(c0_n1 + c0_n2)) }" alloyCode
+
+case_si47_dereference_and_numeric_operands_of_a_set_operator_are_rejected_with_position :: Assertion
+case_si47_dereference_and_numeric_operands_of_a_set_operator_are_rejected_with_position = do
+    forM_ [ ("dereference on the right", "[ x = sum (n1 ++ m.dref) ]", Pos 6 18, si47_msg "sum" "++" "a dereference yields values rather than clafers")
+          , ("dereferences on both sides, the first is reported", "[ x = sum (n1.dref ++ m.dref) ]", Pos 6 12, si47_msg "sum" "++" "a dereference yields values rather than clafers")
+          , ("a clafer and its own dereference", "[ x = sum (N ++ N.dref) ]", Pos 6 17, si47_msg "sum" "++" "a dereference yields values rather than clafers")
+          , ("a dereference under difference", "[ x = sum (N -- n1.dref) ]", Pos 6 17, si47_msg "sum" "--" "a dereference yields values rather than clafers")
+          , ("an integer literal", "[ x = sum (n1 ++ 5) ]", Pos 6 18, si47_msg "sum" "++" "an integer literal is an integer")
+          , ("a literal nested under an inner operator", "[ x = sum (n1 ++ (m -- 2)) ]", Pos 6 24, si47_msg "sum" "--" "an integer literal is an integer")
+          , ("arithmetic inside the set operator", "[ x = sum (n1 ++ (n2 - 1)) ]", Pos 6 19, si47_msg "sum" "++" "'-' yields a number")
+          , ("a nested aggregate inside the set operator", "[ x = sum (n1 ++ (sum N)) ]", Pos 6 19, si47_msg "sum" "++" "'sum' yields a number")
+          , ("a local declared over integer", "[ all i : integer | sum (i ++ n1) > 0 ]", Pos 6 26, si47_msg "sum" "++" "the local 'i' is declared over the primitive type 'integer'")
+          , ("product", "[ x = product (n1 ++ m.dref) ]", Pos 6 22, si47_msg "product" "++" "a dereference yields values rather than clafers")
+          , ("goal", "<< maximize sum (n1 ++ 5) >>", Pos 6 24, si47_msg "sum" "++" "an integer literal is an integer")
+          ] $ \(variant, constraint, expectedPos, expected) ->
+        si46_assertRejected variant defaultClaferArgs (si47_model constraint) expectedPos expected
+    si46_assertRejected "--skip-resolver" defaultClaferArgs{skip_resolver = True} (si47_model "[ x = sum (n1 ++ m.dref) ]") (Pos 6 18) (si47_msg "sum" "++" "a dereference yields values rather than clafers")
+    si46_assertRejected "temporal" defaultClaferArgs ("final marker\n" ++ si47_model "[ G (x = sum (n1 ++ m.dref)) ]") (Pos 7 21) (si47_msg "sum" "++" "a dereference yields values rather than clafers")
+
+-- The shapes the type resolver refuses: a set operator whose operands share
+-- no clafer type types only over their values (`N.dref -- m.dref`), a leaf
+-- without a reference, and a union of references to different types.
+case_si47_set_operators_over_unrelated_or_reference_less_clafers_are_refused :: Assertion
+case_si47_set_operators_over_unrelated_or_reference_less_clafers_are_refused = do
+    si47_assertRefused "difference of unrelated clafers" defaultClaferArgs (si47_model "[ x = sum (N -- m) ]") (Pos 6 7)
+        "Function 'sum' cannot be performed on '--' over values: its operands share no clafer type and were dereferenced one by one; the operand of 'sum' must be a set of integer clafers, as in sum (N -- n1) with n1 : N"
+    si47_assertRefused "intersection of unrelated clafers, under product" defaultClaferArgs (si47_model "[ x = product (N ** m) ]") (Pos 6 7)
+        "Function 'product' cannot be performed on '**' over values: its operands share no clafer type and were dereferenced one by one; the operand of 'product' must be a set of integer clafers, as in product (N ** n1) with n1 : N"
+    si47_assertRefused "a reference-less leaf" defaultClaferArgs "abstract N ->> integer\nn1 : N = 5\nabstract A\na1 : A\nx -> integer\n[ x = sum (A ++ n1) ]\n" (Pos 6 12)
+        "Function 'sum' cannot be performed on a set expression over 'A', which has no reference"
+    si47_assertRefused "references to different types" defaultClaferArgs "abstract N ->> integer\nn1 : N = 5\ns -> string\nx -> integer\n[ x = sum (n1 ++ s) ]\n" (Pos 5 7)
+        "Function 'sum' cannot be performed on sum '"
+    si47_assertRefused "difference of unrelated clafers under --skip-resolver" defaultClaferArgs{skip_resolver = True} (si47_model "[ x = sum (N -- m) ]") (Pos 6 7)
+        "Function 'sum' cannot be performed on '--' over values"
+
+-- HOARDE Codex, PR #52 Cycle 1: a reference chain under a set operator
+-- (`sum (r1 ++ r2)` with `r1 -> N`, `N ->> integer`) follows the chain as
+-- `sum r1` does: each leaf is dereferenced along its own chain until its
+-- nearest references point to values, then the whole set takes the final
+-- hop (Cycle 2: leaves of different depths, `r1 ++ n1`, meet that way, and
+-- a chain reaching a clafer without a reference is refused at the leaf).
+-- Alloy renders the per-leaf joins and then the target's relation; Choco
+-- emits `union(joinRef, joinRef)` (chocosolver rejects `joinRef` on a union
+-- of clafers with different references).  The semantics is that of the
+-- referenced atoms as a set (two references to the same atom count it
+-- once), with one Choco part per target reference.
+case_si47_reference_chains_under_a_set_operator_follow_the_chain :: Assertion
+case_si47_reference_chains_under_a_set_operator_follow_the_chain = do
+    let chain = "abstract N ->> integer\nn1 : N = 3\nn2 : N = 2\nr1 -> N = n1\nr2 -> N = n2\ntotal -> integer\n[ total = sum (r1 ++ r2) ]\n"
+    si29_assertContains "union of chains (Alloy)" "fact { (c0_total.@c0_total_ref) = (sum temp : ((c0_r1.@c0_r1_ref) + (c0_r2.@c0_r2_ref)) | temp.@c0_N_ref) }" (si31_alloy chain)
+    si29_assertContains "union of chains (Choco)" "Constraint(equal(joinRef(global(c0_total)), sum(union(joinRef(global(c0_r1)), joinRef(global(c0_r2))))));" (si31_choco chain)
+    let targets = "abstract N ->> integer\nabstract M ->> integer\nn1 : N = 3\nm1 : M = 4\nr1 -> N = n1\nr2 -> M = m1\ntotal -> integer\n[ total = sum (r1 ++ r2) ]\n"
+    si29_assertContains "chains to different targets (Alloy)" "fact { (c0_total.@c0_total_ref) = (sum temp : ((c0_r1.@c0_r1_ref) + (c0_r2.@c0_r2_ref)) | temp.(@c0_N_ref + @c0_M_ref)) }" (si31_alloy targets)
+    si29_assertContains "chains to different targets (Choco)" "Constraint(equal(joinRef(global(c0_total)), add(sum(joinRef(global(c0_r1))), sum(joinRef(global(c0_r2))))));" (si31_choco targets)
+    let nested = "abstract N ->> integer\nn1 : N = 3\nn2 : N = 2\nr1 -> N = n1\nr2 -> N = n2\nrest -> integer\n[ rest = sum ((r1 ++ r2) -- r2) ]\nprod -> integer\n[ prod = product (r1 ++ r2) ]\n"
+        nestedChoco = si31_choco nested
+    si29_assertContains "difference of chains (Choco)" "Constraint(equal(joinRef(global(c0_rest)), sum(diff(union(joinRef(global(c0_r1)), joinRef(global(c0_r2))), joinRef(global(c0_r2))))));" nestedChoco
+    si29_assertContains "product of chains (Choco)" "Constraint(equal(joinRef(global(c0_prod)), product(union(joinRef(global(c0_r1)), joinRef(global(c0_r2))))));" nestedChoco
+    let mixed = "abstract N ->> integer\nn1 : N = 3\nr1 -> N = n1\ntotal -> integer\n[ total = sum (r1 ++ n1) ]\n"
+    si29_assertContains "leaves of different depths (Alloy)" "fact { (c0_total.@c0_total_ref) = (sum temp : ((c0_r1.@c0_r1_ref) + c0_n1) | temp.@c0_N_ref) }" (si31_alloy mixed)
+    si29_assertContains "leaves of different depths (Choco)" "Constraint(equal(joinRef(global(c0_total)), sum(union(joinRef(global(c0_r1)), global(c0_n1)))));" (si31_choco mixed)
+    let threeHop = "abstract N ->> integer\nn1 : N = 3\ns -> N = n1\nr1 -> s = s\nr2 -> s = s\ntotal -> integer\n[ total = sum (r1 ++ r2) ]\n"
+    si29_assertContains "three hops (Alloy)" "fact { (c0_total.@c0_total_ref) = (sum temp : (((c0_r1.@c0_r1_ref).@c0_s_ref) + ((c0_r2.@c0_r2_ref).@c0_s_ref)) | temp.@c0_N_ref) }" (si31_alloy threeHop)
+    si29_assertContains "three hops (Choco)" "Constraint(equal(joinRef(global(c0_total)), sum(union(joinRef(joinRef(global(c0_r1))), joinRef(joinRef(global(c0_r2)))))));" (si31_choco threeHop)
+    si47_assertRefused "a chain reaching a clafer without a reference, next to a valid one" defaultClaferArgs "abstract A\na1 : A\nabstract N ->> integer\nn1 : N = 3\nr1 -> A = a1\nr2 -> N = n1\ntotal -> integer\n[ total = sum (r1 ++ r2) ]\n" (Pos 8 16)
+        "Function 'sum' cannot be performed on a set expression over 'r1', whose reference chain reaches 'A', which has no reference"
+    si47_assertRefused "a chain reaching a clafer without a reference in the second operand (HOARDE Junie, Cycle 3)" defaultClaferArgs "abstract A\na1 : A\nabstract N ->> integer\nn1 : N = 3\nr1 -> N = n1\nr2 -> A = a1\ntotal -> integer\n[ total = sum (r1 ++ r2) ]\n" (Pos 8 22)
+        "Function 'sum' cannot be performed on a set expression over 'r2', whose reference chain reaches 'A', which has no reference"
+    si47_assertRefused "a chain reaching a clafer without a reference under intersection names the source leaf (HOARDE Codex, Cycle 3)" defaultClaferArgs "abstract A\na : A\nabstract S -> A\ns : S -> A = a\nabstract R -> S\nr1 : R -> S = s\nr2 : R -> S = s\ntotal -> integer\n[ total = sum (r1 ** r2) ]\n" (Pos 9 16)
+        "Function 'sum' cannot be performed on a set expression over 'r1', whose reference chain reaches 'A', which has no reference"
+    si47_assertRefused "chains reaching a clafer without a reference on both sides" defaultClaferArgs "abstract A\na1 : A\nr1 -> A = a1\nr2 -> A = a1\ntotal -> integer\n[ total = sum (r1 ++ r2) ]\n" (Pos 6 16)
+        "Function 'sum' cannot be performed on a set expression over 'r1', whose reference chain reaches 'A', which has no reference"
+
+-- Shapes reachable only without name resolution (a quantifier declared over
+-- a set expression fails name resolution), HOARDE Codex, Gemini, and Junie,
+-- PR #52 Cycles 1 and 2: a local bound to clafers with different references
+-- contributes every reference, as a single operand and inside a set
+-- operator -- Alloy joins the union of the relations, Choco splits the leaf
+-- per reference owner (`inter(n, global(x))`), which chocosolver types and
+-- solves; a local declared over a set operator over dereferences ranges
+-- over values and is declined by the #46 pre-pass instead of aborting the
+-- Alloy generator.  (A local over clafers sharing one reference would need
+-- inheritance, and a model with inheritance cannot skip name resolution.)
+case_si47_locals_over_set_expressions_without_the_resolver :: Assertion
+case_si47_locals_over_set_expressions_without_the_resolver = do
+    let skip = defaultClaferArgs{mode = [Alloy, Choco], skip_resolver = True}
+        results = fromRight $ compileOneFragment skip "x -> integer\ny -> integer\nm -> integer\n[ all n : (x ++ y) | sum n > 0 ]\n[ all n : (x ++ y) | sum (n ++ m) > 0 ]\n[ all n : x | sum (n ++ m) > 0 ]\n[ all n : x | sum n > 0 ]\n"
+        alloyCode = outputCode $ fromJust $ Map.lookup Alloy results
+        chocoCode = outputCode $ fromJust $ Map.lookup Choco results
+    si29_assertContains "multi-reference local as the operand (Alloy)" "fact { all  n : x + y | (sum temp : n | temp.(@x_ref + @y_ref)) > 0 }" alloyCode
+    si29_assertContains "multi-reference local as the operand (Choco)" "Constraint(all([decl([n = local(\"n\")], union(global(x), global(y)))], greaterThan(add(sum(inter(n, global(x))), sum(inter(n, global(y)))), constant(0))));" chocoCode
+    si29_assertContains "multi-reference local inside a set operator (Alloy)" "fact { all  n : x + y | (sum temp : (n + m) | temp.(@x_ref + @y_ref + @m_ref)) > 0 }" alloyCode
+    si29_assertContains "multi-reference local inside a set operator (Choco)" "Constraint(all([decl([n = local(\"n\")], union(global(x), global(y)))], greaterThan(add(sum(inter(n, global(x))), add(sum(inter(n, global(y))), sum(global(m)))), constant(0))));" chocoCode
+    si29_assertContains "a local over one clafer as the operand (Alloy, HOARDE Junie Cycle 3)" "fact { all  n : x | (sum temp : n | temp.@x_ref) > 0 }" alloyCode
+    si29_assertContains "a local over one clafer as the operand (Choco)" "Constraint(all([decl([n = local(\"n\")], global(x))], greaterThan(sum(n), constant(0))));" chocoCode
+    si29_assertContains "a local over one clafer (Alloy)" "fact { all  n : x | (sum temp : (n + m) | temp.(@x_ref + @m_ref)) > 0 }" alloyCode
+    si29_assertContains "a local over one clafer (Choco)" "Constraint(all([decl([n = local(\"n\")], global(x))], greaterThan(add(sum(n), sum(global(m))), constant(0))));" chocoCode
+    si46_assertRejected "a local declared over a set operator over dereferences" defaultClaferArgs{skip_resolver = True}
+        "x -> integer\ny -> integer\n[ all i : (x.dref ++ y.dref) | sum i > 0 ]\n" (Pos 3 36)
+        (si46_msg "sum" "the local 'i' is declared over a set operator over a dereference, i.e. values rather than clafers")
+    -- HOARDE Codex, Cycle 3: a multi-reference local that starts a reference
+    -- chain is split per source before the dereference in Choco
+    -- (`joinRef(inter(n, global(rx)))`), and a member without a reference
+    -- reached through the local, directly or after a hop, is refused at the
+    -- local -- also when the local is the whole operand, where the
+    -- identifier rule's own first-reference dereference would otherwise
+    -- rescue it
+    let chains = fromRight $ compileOneFragment skip "x -> integer\n[ x = 1 ]\nrx -> x\n[ rx = x ]\ny -> integer\n[ y = 2 ]\nry -> y\n[ ry = y ]\nz -> integer\n[ z = 3 ]\nrz -> z\n[ rz = z ]\n[ all n : ((rx ++ ry) ++ rz) | sum n > 0 ]\n"
+    si29_assertContains "a multi-reference local starting chains (Alloy)" "fact { all  n : (rx + ry) + rz | (sum temp : (n.(@rx_ref + @ry_ref + @rz_ref)) | temp.(@x_ref + @y_ref + @z_ref)) > 0 }" (outputCode $ fromJust $ Map.lookup Alloy chains)
+    si29_assertContains "a multi-reference local starting chains (Choco)" "greaterThan(add(sum(joinRef(inter(n, global(rx)))), add(sum(joinRef(inter(n, global(ry)))), sum(joinRef(inter(n, global(rz)))))), constant(0))" (outputCode $ fromJust $ Map.lookup Choco chains)
+    si47_assertRefused "a reference-less member reached through a local, after a hop" defaultClaferArgs{skip_resolver = True}
+        "a\nra -> a\n[ ra = a ]\nx -> integer\n[ x = 1 ]\nrx -> x\n[ rx = x ]\ny -> integer\n[ y = 2 ]\nry -> y\n[ ry = y ]\nassert [ all n : ((ra ++ rx) ++ ry) | n in ra => sum (n ++ rx) = 1 ]\n" (Pos 12 55)
+        "Function 'sum' cannot be performed on a set expression over 'n', whose reference chain reaches 'a', which has no reference"
+    si47_assertRefused "a reference-less member of a local that is the whole operand" defaultClaferArgs{skip_resolver = True}
+        "a\nx -> integer\n[ x = 1 ]\n[ all n : (a ++ x) | sum n > 0 ]\n" (Pos 4 26)
+        "Function 'sum' cannot be performed on a set expression over 'n', whose reference chain reaches 'a', which has no reference"
+    si46_assertRejected "a local declared over a set operator over locals bound over values (HOARDE Codex, Cycle 2)" defaultClaferArgs{skip_resolver = True}
+        "x -> integer\ny -> integer\n[ all i : x.dref | all j : y.dref | all k : (i ++ j) | sum k > 0 ]\n" (Pos 3 60)
+        (si46_msg "sum" "the local 'k' is declared over a set operator over a dereference, i.e. values rather than clafers")
+
+-- `--flatten-inheritance` loses every reference inherited from an abstract
+-- before type resolution (Sigil-Logic/clafer#53, pre-existing): the
+-- single-operand and the set-operator forms fail alike, so the aggregate
+-- rule does not widen what the flag supports (HOARDE Codex, PR #52 Cycle 1
+-- observed the set-operator form; on master it compiled only through the
+-- last-operand dereference this fix removes).
+case_si47_flatten_inheritance_refuses_inherited_references_alike :: Assertion
+case_si47_flatten_inheritance_refuses_inherited_references_alike = do
+    let flat = defaultClaferArgs{flatten_inheritance = True}
+    si47_assertRefused "single operand under --flatten-inheritance" flat "abstract N ->> integer\nabstract Sub : N\ns1 : Sub\ns2 : Sub\ntotal -> integer\n[ total = sum s1 ]\n" (Pos 6 11)
+        "Function 'sum' cannot be performed on sum '"
+    si47_assertRefused "set operator under --flatten-inheritance" flat "abstract N ->> integer\nabstract Sub : N\ns1 : Sub\ns2 : Sub\nm -> integer\ntotal -> integer\n[ total = sum (s1 ++ m) ]\n" (Pos 7 16)
+        "Function 'sum' cannot be performed on a set expression over 's1', which has no reference"
+
+-- The refused shapes fail in the type resolver, whose message is asserted by
+-- prefix (a full type shows in the mixed-target message).
+si47_assertRefused :: String -> ClaferArgs -> String -> Pos -> String -> Assertion
+si47_assertRefused variant args' model expectedPos expectedPrefix =
+    case compileOneFragment args' model of
+        Left [SemanticErr{pos = ErrPos{modelPos = actualPos}, msg = actual}] -> do
+            (expectedPrefix `isPrefixOf` actual) @? (variant ++ ": expected a message starting with\n" ++ expectedPrefix ++ "\nbut got\n" ++ actual)
+            (actualPos == expectedPos) @? (variant ++ ": expected the error at " ++ show expectedPos ++ " but got " ++ show actualPos)
+        Left errors -> assertFailure (variant ++ ": expected exactly one positioned semantic error, got " ++ show errors)
+        Right _     -> assertFailure (variant ++ ": the model is not expected to compile")
 
 -- Sigil-Logic/clafer#44: a let-expression (`let x = a in e`, grammar level
 -- Exp1) is parsed but was never implemented; on master it reached the

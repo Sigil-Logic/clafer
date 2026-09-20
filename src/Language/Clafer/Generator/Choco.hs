@@ -391,13 +391,13 @@ genCModule (imodule@IModule{_mDecls}, genv') scopes  otherTokens' =
         "sub(" ++ genConstraintPExp arg1 ++ ", " ++ genConstraintPExp arg2 ++ ")"
     genConstraintExp (IFunExp "sum" args')
         | [arg] <- args', PExp{_exp = IFunExp{_exps = [a, PExp{_exp = IClaferId{_sident = "dref"}}]}} <- rewrite arg =
-            "sum(" ++ genConstraintPExp a ++ ")"
+            genAggregate "sum" "add" a
         | [arg] <- args' =
             "sum(" ++ genConstraintPExp arg ++ ")"
         | otherwise = error $ "[bug] Choco.genConstraintExp: Unexpected sum argument: " ++ show args'
     genConstraintExp (IFunExp "product" args')
         | [arg] <- args', PExp{_exp = IFunExp{_exps = [a, PExp{_exp = IClaferId{_sident = "dref"}}]}} <- rewrite arg =
-            "product(" ++ genConstraintPExp a ++ ")"
+            genAggregate "product" "mul" a
         | otherwise = error "Choco: Unexpected product argument."
     genConstraintExp (IFunExp "+" args') =
         (if _iType (head args') == Just TString then "concat" else "add") ++
@@ -419,6 +419,123 @@ genCModule (imodule@IModule{_mDecls}, genv') scopes  otherTokens' =
     genConstraintExp (IStr val) = "constant(" ++ show val ++ ")"
     genConstraintExp (IDouble val) = "constant(" ++ show val ++ ")"
     genConstraintExp (IReal val) = "constant(" ++ show val ++ ")"
+
+    -- Sigil-Logic/clafer#47: `sum` / `product` over a set expression.  The
+    -- type resolver dereferences a set operator over integer clafers as a
+    -- whole (`(x ++ y).dref`), so the set expression arrives here intact.
+    -- chocosolver aggregates over `union` / `diff` / `inter` of clafers that
+    -- share a reference-carrying type (`sum(diff(global(c0_N),
+    -- global(c0_n1)))`) and rejects a union of clafers with none in common
+    -- (`Ambiguous sum([c0_x, c0_y])`), so the expression is partitioned by
+    -- reference owner -- the nearest clafer in a leaf's hierarchy that
+    -- declares the reference -- and each owner's restriction (the other
+    -- owners' leaves replaced by the empty set: `A ++ {} = A`, `A -- {} = A`,
+    -- `{} -- A = {}`, `A ** {} = {}`) is aggregated on its own, the parts
+    -- combined with `add` (`mul` for `product`).  This is exact: atoms of
+    -- clafers with different reference owners are disjoint, so every atom of
+    -- the expression belongs to exactly one part.  One owner emits the
+    -- expression unchanged, as does an operand that is not a set operator.
+    genAggregate :: String -> String -> PExp -> String
+    genAggregate aggr combine setExp0 =
+        case ownerParts of
+            ownerParts'@(_ : _ : _) -> foldr1 (\part rest -> combine ++ "(" ++ part ++ ", " ++ rest ++ ")") (map aggregateOf ownerParts')
+            _                 -> aggregateOf setExp
+        where
+            setExp = distributeDref setExp0
+            aggregateOf part = aggr ++ "(" ++ genConstraintPExp part ++ ")"
+            leaves = setOperatorLeaves setExp
+            owners = nub $ concatMap leafOwners leaves
+            ownerParts
+                | all (not . null . leafOwners) leaves = mapMaybe (\owner -> restrictTo (Just owner) setExp) owners
+                | otherwise = []
+            -- the reference owners of a leaf: one for a clafer, a
+            -- navigation, or a dereferenced leaf; one per member for a
+            -- local bound to a set expression over clafers with different
+            -- references (`all n : (x ++ y)`, reachable with
+            -- --skip-resolver), whose atoms the restriction below splits
+            -- per owner (HOARDE Codex and Gemini, PR #52 Cycles 1 and 2)
+            leafOwners :: PExp -> [UID]
+            leafOwners = nub . map snd . pathOwners
+            -- the (source, owner) pairs of a leaf: the source is the member
+            -- of a multi-reference local the atom comes from, the owner the
+            -- clafer whose reference the aggregate reads at this depth; a
+            -- dereference maps each pair to the owner of the reference
+            -- target, so a local over `rx ++ ry` that starts a chain keeps
+            -- its sources for the split (HOARDE Codex, PR #52 Cycle 3)
+            pathOwners :: PExp -> [(UID, UID)]
+            pathOwners PExp{_exp = IFunExp{_op = ".", _exps = [inner, PExp{_exp = IClaferId{_sident = "dref"}}]}} =
+                [ (source, target) | (source, owner) <- pathOwners inner, Just target <- [referenceTargetOwner owner] ]
+            pathOwners PExp{_iType = Just TClafer{_hi = hi@(u : _)}}
+                | hi == superChain u = [ (u, owner) | Just owner <- [nearestOwner u] ]
+                | otherwise = nub [ (member, owner) | member <- hi, Just owner <- [nearestOwner member] ]
+            pathOwners leaf = [ (owner, owner) | Just owner <- [refOwner leaf] ]
+            -- A dereference of a set expression -- `(r1 ++ r2).dref`, a
+            -- reference chain under a set operator, `r1 -> N` with `N ->>
+            -- integer` -- is pushed to the leaves, `r1.dref ++ r2.dref`:
+            -- chocosolver rejects `joinRef` on a union of clafers with
+            -- different references (`Ambiguous join`) and accepts the union
+            -- of the dereferences, which keeps the set semantics Alloy has
+            -- (`(c0_r1 + c0_r2).(@c0_r1_ref + @c0_r2_ref)`); the leaves are
+            -- then partitioned by the owner of the reference target (HOARDE
+            -- Codex, PR #52 Cycle 1).
+            distributeDref :: PExp -> PExp
+            distributeDref p@PExp{_exp = e@IFunExp{_op = ".", _exps = [inner, d@PExp{_exp = IClaferId{_sident = "dref"}}]}} =
+                case distributeDref inner of
+                    inner' | isSetOperator inner' -> mapLeaves (\leaf -> leaf{_exp = IFunExp "." [leaf, d]}) inner'
+                           | otherwise            -> p{_exp = e{_exps = [inner', d]}}
+            distributeDref p = p
+            mapLeaves f p@PExp{_exp = e@IFunExp{_exps = [l, r]}}
+                | isSetOperator p = p{_exp = e{_exps = [mapLeaves f l, mapLeaves f r]}}
+            mapLeaves f leaf = f leaf
+            -- the reference owner of a leaf: the nearest clafer along the
+            -- super chain of the leaf's clafer that declares a reference;
+            -- for a dereferenced leaf, the owner of the clafers its
+            -- reference points to
+            refOwner :: PExp -> Maybe UID
+            refOwner PExp{_exp = IFunExp{_op = ".", _exps = [inner, PExp{_exp = IClaferId{_sident = "dref"}}]}} =
+                refOwner inner >>= referenceTargetOwner
+            refOwner PExp{_iType = Just TClafer{_hi = u : _}} = nearestOwner u
+            refOwner _ = Nothing
+            nearestOwner :: UID -> Maybe UID
+            nearestOwner u = listToMaybe [ o | o <- superChain u, Just IClafer{_reference = Just _} <- [findIClafer uidIClaferMap' o] ]
+            referenceTargetOwner :: UID -> Maybe UID
+            referenceTargetOwner o = case findIClafer uidIClaferMap' o >>= _reference >>= (_iType . _ref) of
+                Just TClafer{_hi = t : _} -> nearestOwner t
+                _                         -> Nothing
+            -- the set expression restricted to the leaves of one owner, or
+            -- Nothing when it denotes the empty set
+            restrictTo :: Maybe UID -> PExp -> Maybe PExp
+            restrictTo owner p@PExp{_exp = e@IFunExp{_op = op', _exps = [l, r]}}
+                | isSetOperator p =
+                    case (restrictTo owner l, restrictTo owner r) of
+                        (Nothing, Nothing) -> Nothing
+                        (Just l', Nothing) -> if op' == iIntersection then Nothing else Just l'
+                        (Nothing, Just r') -> if op' == iUnion then Just r' else Nothing
+                        (Just l', Just r') -> Just p{_exp = e{_exps = [l', r']}}
+            restrictTo (Just owner) leaf
+                | leafOwners leaf == [owner] = Just leaf
+                | otherwise = case nub [ source | (source, owner') <- pathOwners leaf, owner' == owner ] of
+                    []      -> Nothing
+                    -- a multi-reference local: its atoms from the sources of
+                    -- this owner, `n ** (rx ++ ry)`, restricted before the
+                    -- dereferences it starts (`joinRef(inter(n, ...))`)
+                    sources -> Just $ restrictInnermost sources leaf
+            restrictTo _ _ = Nothing
+            restrictInnermost :: [UID] -> PExp -> PExp
+            restrictInnermost sources p@PExp{_exp = e@IFunExp{_op = ".", _exps = [inner, d@PExp{_exp = IClaferId{_sident = "dref"}}]}} =
+                p{_exp = e{_exps = [restrictInnermost sources inner, d]}}
+            restrictInnermost sources leaf =
+                leaf{_exp = IFunExp iIntersection [leaf, foldr1 (\g rest -> PExp Nothing "" (_inPos leaf) (IFunExp iUnion [g, rest])) (map globalOf sources)]}
+                where globalOf u = PExp (Just $ TClafer [u]) "" (_inPos leaf) (IClaferId "" u True (GlobalBind u))
+
+    isSetOperator :: PExp -> Bool
+    isSetOperator PExp{_exp = IFunExp{_op = op', _exps = [_, _]}} = op' `elem` [iUnion, iDifference, iIntersection]
+    isSetOperator _ = False
+
+    setOperatorLeaves :: PExp -> [PExp]
+    setOperatorLeaves p@PExp{_exp = IFunExp{_exps = [l, r]}}
+        | isSetOperator p = setOperatorLeaves l ++ setOperatorLeaves r
+    setOperatorLeaves p = [p]
 
     mapQuant INo = "none"
     mapQuant ISome = "some"

@@ -304,20 +304,49 @@ resolveTPExp' p@PExp{_inPos, _exp} =
   resolveTExp e@(IReal _) = runListT $ runExceptT $ return (TReal, e)
   resolveTExp e@(IStr _)    = runListT $ runExceptT $ return (TString, e)
 
-  resolveTExp e@IFunExp {_op, _exps = [arg]} =
+  resolveTExp e@IFunExp {_op, _exps = [arg]} = do
+    uidIClaferMap' <- asks iUIDIClaferMap
     runListT $ runExceptT $ do
-      arg' <- lift $ ListT $ resolveTPExp arg
+      arg0 <- lift $ ListT $ resolveTPExp arg
+      -- Sigil-Logic/clafer#47: `sum` and `product` aggregate the value of
+      -- every member of a set of integer clafers, so a clafer-set operand is
+      -- dereferenced as a whole -- `(x ++ y).dref` -- and tried first; the
+      -- plain operand follows so that a reference-less operand keeps its
+      -- error below.  Before, `sum (x ++ y)` was typed from the operands'
+      -- separate dereference alternatives, and the first "integer" one,
+      -- `x ++ y.dref` (a union type, on which 'isTInteger' holds), reached
+      -- both generators, which rendered it literally.
+      arg' <- if _op `elem` [iSumSet, iProdSet] && isTClafer (typeOf arg0)
+                then derefAggregateOperand _op uidIClaferMap' arg0 <++> return arg0
+                else return arg0
       let t = typeOf arg'
       let
           test c =
             unless c $
               throwError $ SemanticErr _inPos ("Function '" ++ _op ++ "' cannot be performed on " ++ _op ++ " '" ++ showType arg' ++ "'")
+          -- a set operator that survived typing only over values: its operands
+          -- share no clafer type (`sum (N -- m)` with unrelated N and m), so the
+          -- clafer-set alternative failed and the one-by-one dereferences won
+          testAggregable = do
+            -- the identifier rule's own dereference alternatives name the
+            -- first reference only; for a local over `a ++ x` with `a`
+            -- reference-less they would rescue `sum n` after the whole-set
+            -- hop refused it (HOARDE Codex, PR #52 Cycle 3)
+            case missingMemberOf uidIClaferMap' (typeOf $ underDrefs arg') of
+              Just culprit | arg' /= underDrefs arg' ->
+                throwError $ SemanticErr _inPos ("Function '" ++ _op ++ "' cannot be performed on a set expression over '" ++ leafNameOf uidIClaferMap' arg' ++ "', whose reference chain reaches '" ++ culprit ++ "', which has no reference")
+              _ -> return ()
+            unless (aggregableOperand arg') $ throwError $ SemanticErr _inPos $
+              case arg' of
+                PExp{_exp = IFunExp{_op = setOp}} | isSetOperator arg' ->
+                  "Function '" ++ _op ++ "' cannot be performed on '" ++ setOp ++ "' over values: its operands share no clafer type and were dereferenced one by one; the operand of '" ++ _op ++ "' must be a set of integer clafers, as in " ++ _op ++ " (N " ++ setOp ++ " n1) with n1 : N"
+                _ -> "Function '" ++ _op ++ "' cannot be performed on " ++ _op ++ " '" ++ showType arg' ++ "'"
       let result
             | _op == iNot = test (isTBoolean t) >> return TBoolean
             | _op `elem` ltlUnOps = test (isTBoolean t) >> return TBoolean
             | _op == iCSet = return TInteger
-            | _op == iSumSet = test (isTInteger t) >> return TInteger
-            | _op == iProdSet = test (isTInteger t) >> return TInteger
+            | _op == iSumSet = testAggregable >> return TInteger
+            | _op == iProdSet = testAggregable >> return TInteger
             | _op `elem` [iMin, iMinimum, iMaximum, iMinimize, iMaximize] = test (numeric t) >> return t
             | otherwise = assert False $ fail $ "Unknown op '" ++ _op ++ "'"
       result' <- result
@@ -429,6 +458,172 @@ resolveTPExp' p@PExp{_inPos, _exp} =
                        then throwError $ SemanticErr _inPos "The type of declaration of a quantified expression must not be 'TBoolean'"
                        else return $ d{_body = body'}
   resolveTExp e = fail $ "Unknown iexp: " ++ show e
+
+-- | Dereference an operand of @sum@ / @product@ as a whole
+-- (Sigil-Logic/clafer#47).  A set operator over clafers -- @x ++ y@, @N --
+-- n1@, @(n1 ++ n2) ** N@ -- becomes @(...).dref@ typed by the union of its
+-- members' nearest reference maps: the reference owners are kept apart in a
+-- 'TUnion' so each generator can name every reference relation (Alloy
+-- renders @temp.(@c0_x_ref + @c0_y_ref)@; Choco partitions the expression
+-- by owner), and the targets are joined, so a mixed target (integer and
+-- string) is refused by 'aggregableOperand'.  While the target is itself a
+-- set of clafers -- a reference chain, @sum (r1 ++ r2)@ with @r1 -> N@ and
+-- @N ->> integer@ -- further hops follow, each again by the union of the
+-- target members' nearest references, as 'addDref' follows a chain for a
+-- single operand (HOARDE Codex, PR #52 Cycle 1).  A leaf typed over
+-- clafers with different references (a local bound to @x ++ y@, reachable
+-- with @--skip-resolver@) contributes every one of them: Alloy joins the
+-- union of the relations, Choco splits the leaf per reference (@n ** x@,
+-- @n ** y@; HOARDE Codex and Gemini, PR #52 Cycles 1 and 2).  A leaf
+-- without a reference (@sum (A ++ n1)@ with @A@ reference-less) is an
+-- error positioned at the leaf.  Every other clafer-set operand -- a
+-- clafer, a navigation, a local -- takes the same hops, which coincide
+-- with its own 'addDref' alternatives, so @sum N@, @sum Feature.cost@, and
+-- @sum r@ are unchanged.  A dereference written after a set operator in the
+-- source fails name resolution, so the union map is reachable only from
+-- here.
+derefAggregateOperand :: String -> UIDIClaferMap -> PExp -> ExceptT ClaferSErr (ListT TypeAnalysis) PExp
+derefAggregateOperand op' uidIClaferMap' operand
+  | isSetOperator operand =
+      case [ leaf | leaf <- leaves, referenceLess (typeOf leaf) ] of
+        leaf : _ -> throwError $ SemanticErr (_inPos leaf) ("Function '" ++ op' ++ "' cannot be performed on a set expression over '" ++ leafName leaf ++ "', which has no reference")
+        []       -> case mapM normalizeLeaf leaves of
+          Left (leaf, culprit) -> throwError $ SemanticErr (_inPos leaf) ("Function '" ++ op' ++ "' cannot be performed on a set expression over '" ++ leafName leaf ++ "', whose reference chain reaches '" ++ culprit ++ "', which has no reference")
+          Right leaves'        -> hops $ rebuild operand leaves'
+  -- a single operand takes the same hops: for a clafer, a navigation, or a
+  -- local over one clafer they coincide with 'addDref' (the nearest
+  -- reference along the hierarchy at each hop); for a local bound to a set
+  -- expression over clafers with different references (`all n : (x ++ y) |
+  -- sum n`, --skip-resolver) they name every reference where 'addDref'
+  -- named the first (HOARDE Junie, PR #52 Cycle 2)
+  | otherwise = hops operand
+  where
+  leaves = setOperatorLeaves operand
+  newPExp = PExp Nothing "" $ _inPos operand
+  -- Each leaf follows its own reference chain first (HOARDE Codex, PR #52
+  -- Cycle 2): a leaf whose nearest references point to clafers is
+  -- dereferenced, typed by the target, until its nearest references point
+  -- to values, so leaves of different depths (`r1 ++ n1` with `r1 -> N`)
+  -- meet as sets of clafers with values and take the final hop together;
+  -- a chain that reaches a clafer without a reference (`r1 -> A`) is an
+  -- error at the leaf instead of a member that silently contributes
+  -- nothing.  References to clafers and to values at one level of a leaf
+  -- are left as they are and refused by 'aggregableOperand' after the hop.
+  normalizeLeaf leaf = go leaf
+    where
+    go p = case missingMember target of
+      Just culprit -> Left (leaf, culprit)
+      Nothing -> case mapsOf target of
+        []                             -> Left (leaf, typeName target)
+        ms | all (isTClafer . _ta) ms -> go $ PExp (Just $ _ta refMap) "" (_inPos leaf) (IFunExp "." [p, PExp (Just refMap) "" (_inPos leaf) (IClaferId "" "dref" False NoBind)])
+           | otherwise                -> Right p
+          where refMap = unionMap ms
+      where target = targetOf $ typeOf p
+  missingMember = missingMemberOf uidIClaferMap'
+  typeName = typeNameOf uidIClaferMap'
+  -- the set operator with its leaves replaced in order, each operator
+  -- node re-typed by the union of its operands (a superset for `--` and
+  -- `**`, which only widens the relations the final hop names)
+  rebuild p ls = fst $ go p ls
+    where
+    go q@PExp{_exp = e@IFunExp{_exps = [l, r]}} ls0
+      | isSetOperator q = let (l', ls1) = go l ls0
+                              (r', ls2) = go r ls1
+                          in (q{_exp = e{_exps = [l', r']}, _iType = Just $ typeOf l' +++ typeOf r'}, ls2)
+    go _ (x : xs) = (x, xs)
+    go q []       = (q, [])
+  -- one dereference hop by the union of the nearest references of the
+  -- clafers the type names, then further hops while the target is a set
+  -- of clafers with references
+  hops pexp' = case missingMember (targetOf $ typeOf pexp') of
+    Just culprit -> throwError $ SemanticErr (_inPos pexp') ("Function '" ++ op' ++ "' cannot be performed on a set expression over '" ++ leafName pexp' ++ "', whose reference chain reaches '" ++ culprit ++ "', which has no reference")
+    Nothing -> case mapsOf (targetOf $ typeOf pexp') of
+     [] -> lift mzero
+     ms -> let refMap = unionMap ms
+               next = newPExp (IFunExp "." [pexp', newPExp (IClaferId "" "dref" False NoBind) `withType` refMap]) `withType` refMap
+           in return next <++> (case _ta refMap of
+                                  TClafer{} -> hops next
+                                  _         -> lift mzero)
+  targetOf (TMap _ ta) = ta
+  targetOf t           = t
+  unionMap [m] = m
+  unionMap ms  = TMap (TUnion $ map _so ms) (foldr1 (+++) $ map _ta ms)
+  -- the nearest reference map of each clafer a type names: for one clafer
+  -- (a type that is its own hierarchy) the first along the hierarchy, as
+  -- 'addDref' finds it; for several (a set operator's union type, a union
+  -- of reference targets, a local bound to a set expression) the first
+  -- along each member's hierarchy
+  mapsOf t@(TClafer hi@(u : _))
+    | getTClaferByUID uidIClaferMap' u == Just t = take 1 $ getTMaps uidIClaferMap' t
+    | otherwise = nub $ concat [ take 1 $ getTMaps uidIClaferMap' member | u' <- hi, Just member <- [getTClaferByUID uidIClaferMap' u'] ]
+  mapsOf t = take 1 $ concatMap (getTMaps uidIClaferMap') $ getTClafers uidIClaferMap' t
+  referenceLess t@(TClafer hi@(u : _))
+    | getTClaferByUID uidIClaferMap' u == Just t = null $ getTMaps uidIClaferMap' t
+    | otherwise = or [ null $ getTMaps uidIClaferMap' member | u' <- hi, Just member <- [getTClaferByUID uidIClaferMap' u'] ]
+  referenceLess t = null $ concatMap (getTMaps uidIClaferMap') $ getTClafers uidIClaferMap' t
+  leafName = leafNameOf uidIClaferMap'
+
+-- | The first clafer among the members of a union type -- a set operator's
+-- type, a local bound to a set expression -- without a reference along its
+-- hierarchy, by name; 'Nothing' for a single clafer (its own hierarchy) and
+-- for a union whose members all have one.  Collecting only the members that
+-- have a reference would let the others contribute nothing (HOARDE Codex,
+-- PR #52 Cycle 3: a local over `ra ++ rx` with `ra -> a`, `a`
+-- reference-less).
+missingMemberOf :: UIDIClaferMap -> IType -> Maybe String
+missingMemberOf uidIClaferMap' t@(TClafer hi@(u : _))
+  | getTClaferByUID uidIClaferMap' u == Just t = Nothing
+  | otherwise = listToMaybe [ typeNameOf uidIClaferMap' member | u' <- hi, Just member <- [getTClaferByUID uidIClaferMap' u'], null $ getTMaps uidIClaferMap' member ]
+missingMemberOf _ _ = Nothing
+
+typeNameOf :: UIDIClaferMap -> IType -> String
+typeNameOf uidIClaferMap' (TClafer (u : _)) | Just IClafer{_ident} <- findIClafer uidIClaferMap' u = _ident
+typeNameOf _ t = show t
+
+-- | The source name of a leaf: through the dereferences the resolver or
+-- 'derefAggregateOperand' added (HOARDE Codex, PR #52 Cycle 3), the last
+-- step of a navigation, or the clafer of the leaf's type.
+leafNameOf :: UIDIClaferMap -> PExp -> String
+leafNameOf uidIClaferMap' leaf = case _exp leaf of
+  IClaferId{_sident} -> maybe _sident _ident $ findIClafer uidIClaferMap' _sident
+  IFunExp{_op = ".", _exps = [inner, PExp{_exp = IClaferId{_sident = "dref"}}]} -> leafNameOf uidIClaferMap' inner
+  IFunExp{_op = ".", _exps = [_, PExp{_exp = IClaferId{_sident}}]} -> maybe _sident _ident $ findIClafer uidIClaferMap' _sident
+  _ -> case typeOf leaf of
+    TClafer (u : _) | Just IClafer{_ident} <- findIClafer uidIClaferMap' u -> _ident
+    _ -> showType leaf
+
+-- | The innermost expression under a chain of dereferences.
+underDrefs :: PExp -> PExp
+underDrefs PExp{_exp = IFunExp{_op = ".", _exps = [inner, PExp{_exp = IClaferId{_sident = "dref"}}]}} = underDrefs inner
+underDrefs p = p
+
+-- | Whether a typed operand of @sum@ / @product@ denotes a set of integer
+-- clafers (Sigil-Logic/clafer#47): a dereference to integers -- the
+-- operand's own @.dref@, or the one 'derefAggregateOperand' adds -- and not a
+-- set operator whose operands were dereferenced one by one (@x ++ y.dref@,
+-- of a union type; @N.dref -- m.dref@ over unrelated @N@ and @m@, of type
+-- integer), nor a mixed target.
+aggregableOperand :: PExp -> Bool
+aggregableOperand operand
+  | isSetOperator operand = False
+  | otherwise = case typeOf operand of
+      TInteger        -> True
+      TMap _ TInteger -> True
+      _               -> False
+
+isSetOperator :: PExp -> Bool
+isSetOperator PExp{_exp = IFunExp{_op = op', _exps = [_, _]}} = op' `elem` [iUnion, iDifference, iIntersection]
+isSetOperator _ = False
+
+-- | The operands of a nest of set operators that are not set operators themselves.
+setOperatorLeaves :: PExp -> [PExp]
+setOperatorLeaves p@PExp{_exp = IFunExp{_exps = [l, r]}}
+  | isSetOperator p = setOperatorLeaves l ++ setOperatorLeaves r
+setOperatorLeaves p = [p]
+
+isTClafer :: IType -> Bool
+isTClafer TClafer{} = True
+isTClafer _         = False
 
 -- Adds "dref"s at the end, effectively dereferencing Clafers when needed.
 addDref :: PExp -> ExceptT ClaferSErr (ListT TypeAnalysis) PExp
